@@ -1,3 +1,5 @@
+use rustc_hash::FxHashSet as HashSet;
+
 pub mod cnf;
 
 pub type ClauseId = usize;
@@ -18,24 +20,6 @@ impl Lit {
 }
 
 pub type Clause = Vec<Lit>;
-
-fn resolve(c1: &Clause, c2: &Clause, pivot: usize) -> Clause {
-    let mut resolved = Vec::new();
-
-    for &lit in c1 {
-        if lit.var != pivot {
-            resolved.push(lit)
-        }
-    }
-
-    for &lit in c2 {
-        if lit.var != pivot && !resolved.contains(&lit) {
-            resolved.push(lit)
-        }
-    }
-
-    resolved
-}
 
 #[derive(Debug, Clone)]
 enum Reason {
@@ -71,23 +55,23 @@ enum ClauseState {
 
 #[derive(Debug)]
 pub struct Solver {
+    num_vars: usize,
     clauses: Vec<Clause>,
     assignments: Vec<Option<Assignment>>,
     trail: Vec<Assignment>,
     trail_lim: Vec<usize>,
     decision_level: usize,
-    num_vars: usize,
 }
 
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
         Solver {
+            num_vars,
             clauses,
             assignments: vec![None; num_vars],
             trail: Vec::new(),
             trail_lim: vec![0],
             decision_level: 0,
-            num_vars,
         }
     }
 
@@ -143,31 +127,22 @@ impl Solver {
     }
 
     fn analyze_conflict(&self, id: ClauseId) -> (Clause, usize) {
-        let mut learned = self.clauses[id].clone();
+        let mut learned: HashSet<Lit> = HashSet::from_iter(self.clauses[id].clone());
         let start = *self.trail_lim.last().unwrap();
         let current_assignments = &mut self.trail[start..].iter().rev();
 
-        let mut seen = vec![false; self.num_vars];
-        let mut num_current = 0;
+        for assignment in current_assignments {
+            let num_current = learned
+                .iter()
+                .filter(|&l| self.assignments[l.var].as_ref().unwrap().level == self.decision_level)
+                .count();
 
-        for lit in &learned {
-            if !seen[lit.var] {
-                seen[lit.var] = true;
-
-                let assignment = self.assignments[lit.var].as_ref().unwrap();
-                if assignment.level == self.decision_level {
-                    num_current += 1;
-                }
-            }
-        }
-
-        while num_current > 1 {
-            let Some(assignment) = current_assignments.next() else {
+            if num_current == 1 {
                 break;
-            };
+            }
             let pivot = assignment.var();
 
-            if !seen[pivot] {
+            if !learned.contains(&Lit::pos(pivot)) && !learned.contains(&Lit::neg(pivot)) {
                 continue;
             }
 
@@ -175,21 +150,9 @@ impl Solver {
                 continue;
             };
 
-            learned = resolve(&learned, &self.clauses[cid], pivot);
-
-            seen.fill(false);
-            num_current = 0;
-
-            for lit in &learned {
-                if !seen[lit.var] {
-                    seen[lit.var] = true;
-
-                    let assignment = self.assignments[lit.var].as_ref().unwrap();
-                    if assignment.level == self.decision_level {
-                        num_current += 1;
-                    }
-                }
-            }
+            learned.extend(&self.clauses[cid]);
+            learned.remove(&Lit::pos(pivot));
+            learned.remove(&Lit::neg(pivot));
         }
 
         let mut backjump_level = 0;
@@ -201,7 +164,7 @@ impl Solver {
             }
         }
 
-        (learned, backjump_level)
+        (learned.into_iter().collect(), backjump_level)
     }
 
     fn pick_branch_lit(&self) -> Option<Lit> {
