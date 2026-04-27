@@ -2,6 +2,21 @@ use rustc_hash::FxHashSet as HashSet;
 
 pub mod cnf;
 
+const VAR_DECAY: f32 = 0.95;
+const DECAY_INTERVAL: u32 = 100;
+const RESCALE_THRESHOLD: f32 = 1e30;
+
+fn bump(var: usize, activities: &mut [f32], var_inc: &mut f32) {
+    activities[var] += *var_inc;
+
+    if activities[var] > RESCALE_THRESHOLD {
+        *var_inc /= RESCALE_THRESHOLD;
+        for a in activities {
+            *a /= RESCALE_THRESHOLD;
+        }
+    }
+}
+
 pub type ClauseId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,6 +73,8 @@ pub struct Solver {
     num_vars: usize,
     clauses: Vec<Clause>,
     assignments: Vec<Option<Assignment>>,
+    var_inc: f32,
+    activities: Vec<f32>,
     trail: Vec<Assignment>,
     trail_lim: Vec<usize>,
     decision_level: usize,
@@ -65,10 +82,19 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
+        let mut activities = vec![0.; num_vars];
+        for clause in &clauses {
+            for lit in clause {
+                activities[lit.var] += 1.;
+            }
+        }
+
         Solver {
             num_vars,
             clauses,
             assignments: vec![None; num_vars],
+            var_inc: 1.,
+            activities,
             trail: Vec::new(),
             trail_lim: vec![0],
             decision_level: 0,
@@ -126,20 +152,30 @@ impl Solver {
         self.decision_level = target_level;
     }
 
-    fn analyze_conflict(&self, id: ClauseId) -> (Clause, Lit, usize) {
+    fn decay(&mut self) {
+        self.var_inc /= VAR_DECAY;
+    }
+
+    fn analyze_conflict(&mut self, id: ClauseId) -> (Clause, Lit, usize) {
         let mut learned: HashSet<Lit> = HashSet::from_iter(self.clauses[id].clone());
         let start = *self.trail_lim.last().unwrap();
-        let current_assignments = &mut self.trail[start..].iter().rev();
+        let current_assignments = &mut self.trail[start..];
 
-        for assignment in current_assignments {
-            let num_current = learned
-                .iter()
-                .filter(|&l| self.assignments[l.var].as_ref().unwrap().level == self.decision_level)
-                .count();
+        for assignment in current_assignments.iter().rev() {
+            let mut num_current = 0;
+
+            for &lit in &learned {
+                bump(lit.var, &mut self.activities, &mut self.var_inc);
+
+                if self.assignments[lit.var].as_ref().unwrap().level == self.decision_level {
+                    num_current += 1;
+                }
+            }
 
             if num_current == 1 {
                 break;
             }
+
             let pivot = assignment.var();
 
             if !learned.contains(&Lit::pos(pivot)) && !learned.contains(&Lit::neg(pivot)) {
@@ -171,7 +207,15 @@ impl Solver {
     }
 
     fn pick_branch_lit(&self) -> Option<Lit> {
-        let var = (0..self.num_vars).find(|&v| self.assignments[v].is_none())?;
+        use std::cmp::Ordering as O;
+        let var = (0..self.num_vars)
+            .filter(|&v| self.assignments[v].is_none())
+            .max_by(|&u, &v| {
+                self.activities[u]
+                    .partial_cmp(&self.activities[v])
+                    .unwrap_or(O::Equal)
+            })?;
+
         Some(Lit { var, val: true })
     }
 
@@ -187,6 +231,7 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> bool {
+        let mut t = 0;
         loop {
             if let Some(conflict_cid) = self.propagate() {
                 if self.decision_level == 0 {
@@ -208,6 +253,13 @@ impl Solver {
                 self.decision_level += 1;
                 self.trail_lim.push(self.trail.len());
                 self.assign(lit, Reason::Decided)
+            }
+
+            if t % DECAY_INTERVAL == 0 {
+                self.decay();
+                t = 0
+            } else {
+                t += 1;
             }
         }
     }

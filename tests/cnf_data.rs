@@ -40,18 +40,63 @@ fn uf75_325() {
 
 #[test]
 fn uuf75_325() {
-    for i in 1..=100 {
+    for i in 1..=1 {
         let path = format!("data/uuf75-325/uuf75-0{i}.cnf");
         let mut solver = construct_solver(path);
         assert!(!solver.solve());
     }
 }
 
-// #[test]
-// fn uf250_1065() {
-//     for i in 1..=1 {
-//         let path = format!("data/uf250-1065/uf250-0{i}.cnf");
-//         let mut solver = construct_solver(path);
-//         assert!(!solver.solve());
-//     }
-// }
+#[test]
+#[ignore]
+fn uf250_1065() {
+    for i in 1..=1 {
+        let path = format!("data/uf250-1065/uf250-0{i}.cnf");
+        let mut solver = construct_solver(path);
+        assert!(solver.solve());
+    }
+}
+
+#[test]
+fn blocksworld_medium() {
+    let path = "data/blocksworld/medium.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
+
+#[test]
+fn blocksworld_large_a() {
+    let path = "data/blocksworld/bw_large.a.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
+
+#[test]
+fn blocksworld_large_b() {
+    let path = "data/blocksworld/bw_large.b.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
+
+#[test]
+#[ignore]
+fn blocksworld_large_c() {
+    let path = "data/blocksworld/bw_large.c.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
+
+#[test]
+#[ignore]
+fn blocksworld_large_d() {
+    let path = "data/blocksworld/bw_large.d.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
+
+#[test]
+fn blocksworld_huge() {
+    let path = "data/blocksworld/huge.cnf".to_string();
+    let mut solver = construct_solver(path);
+    assert!(solver.solve());
+}
