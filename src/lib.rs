@@ -126,7 +126,7 @@ impl Solver {
         self.decision_level = target_level;
     }
 
-    fn analyze_conflict(&self, id: ClauseId) -> (Clause, usize) {
+    fn analyze_conflict(&self, id: ClauseId) -> (Clause, Lit, usize) {
         let mut learned: HashSet<Lit> = HashSet::from_iter(self.clauses[id].clone());
         let start = *self.trail_lim.last().unwrap();
         let current_assignments = &mut self.trail[start..].iter().rev();
@@ -155,16 +155,19 @@ impl Solver {
             learned.remove(&Lit::neg(pivot));
         }
 
+        let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
         let mut backjump_level = 0;
 
         for &lit in &learned {
             let level = self.assignments[lit.var].as_ref().unwrap().level;
-            if level != self.decision_level {
+            if level == self.decision_level {
+                asserted_lit = lit;
+            } else {
                 backjump_level = backjump_level.max(level);
             }
         }
 
-        (learned.into_iter().collect(), backjump_level)
+        (learned.into_iter().collect(), asserted_lit, backjump_level)
     }
 
     fn pick_branch_lit(&self) -> Option<Lit> {
@@ -190,11 +193,14 @@ impl Solver {
                     return false;
                 }
 
-                let (learned, backjump_level) = self.analyze_conflict(conflict_cid);
+                let (learned_clause, asserted_lit, backjump_level) =
+                    self.analyze_conflict(conflict_cid);
 
-                self.clauses.push(learned.clone());
+                self.clauses.push(learned_clause);
 
                 self.backtrack(backjump_level);
+
+                self.assign(asserted_lit, Reason::Deduced(self.clauses.len() - 1));
             } else {
                 let Some(lit) = self.pick_branch_lit() else {
                     return true;
