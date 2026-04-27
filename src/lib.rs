@@ -73,6 +73,7 @@ pub struct Solver {
     num_vars: usize,
     clauses: Vec<Clause>,
     assignments: Vec<Option<Assignment>>,
+    saved_polarities: Vec<bool>,
     var_inc: f32,
     activities: Vec<f32>,
     trail: Vec<Assignment>,
@@ -83,16 +84,20 @@ pub struct Solver {
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
         let mut activities = vec![0.; num_vars];
+        let mut jw_weights = vec![0.; num_vars];
         for clause in &clauses {
             for lit in clause {
                 activities[lit.var] += 1.;
+                jw_weights[lit.var] += 2f32.powi(-(clause.len() as i32))
             }
         }
+        let saved_polarities = jw_weights.iter().map(|&w| w >= 0.).collect();
 
         Solver {
             num_vars,
             clauses,
             assignments: vec![None; num_vars],
+            saved_polarities,
             var_inc: 1.,
             activities,
             trail: Vec::new(),
@@ -162,15 +167,12 @@ impl Solver {
         let current_assignments = &mut self.trail[start..];
 
         for assignment in current_assignments.iter().rev() {
-            let mut num_current = 0;
-
-            for &lit in &learned {
-                bump(lit.var, &mut self.activities, &mut self.var_inc);
-
-                if self.assignments[lit.var].as_ref().unwrap().level == self.decision_level {
-                    num_current += 1;
-                }
-            }
+            let num_current = learned
+                .iter()
+                .filter(|&lit| {
+                    self.assignments[lit.var].as_ref().unwrap().level == self.decision_level
+                })
+                .count();
 
             if num_current == 1 {
                 break;
@@ -186,6 +188,9 @@ impl Solver {
                 continue;
             };
 
+            for &lit in &self.clauses[cid] {
+                bump(lit.var, &mut self.activities, &mut self.var_inc);
+            }
             learned.extend(&self.clauses[cid]);
             learned.remove(&Lit::pos(pivot));
             learned.remove(&Lit::neg(pivot));
@@ -216,7 +221,10 @@ impl Solver {
                     .unwrap_or(O::Equal)
             })?;
 
-        Some(Lit { var, val: true })
+        Some(Lit {
+            var,
+            val: self.saved_polarities[var],
+        })
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
@@ -227,6 +235,7 @@ impl Solver {
             reason,
         };
         self.assignments[lit.var] = Some(assignment.clone());
+        self.saved_polarities[lit.var] = lit.val;
         self.trail.push(assignment);
     }
 
