@@ -151,7 +151,6 @@ impl Solver {
         let mut num_current = 0;
 
         for lit in &learned {
-            seen[lit.var] = true;
             if !seen[lit.var] {
                 seen[lit.var] = true;
 
@@ -182,7 +181,6 @@ impl Solver {
             num_current = 0;
 
             for lit in &learned {
-                seen[lit.var] = true;
                 if !seen[lit.var] {
                     seen[lit.var] = true;
 
@@ -213,11 +211,13 @@ impl Solver {
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
         debug_assert!(self.assignments[lit.var].is_none());
-        self.assignments[lit.var] = Some(Assignment {
+        let assignment = Assignment {
             lit,
             level: self.decision_level,
             reason,
-        });
+        };
+        self.assignments[lit.var] = Some(assignment.clone());
+        self.trail.push(assignment);
     }
 
     pub fn solve(&mut self) -> bool {
