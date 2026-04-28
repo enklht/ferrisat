@@ -5,6 +5,7 @@
 - [x] First UIP
 - [x] [VSIDS](https://medium.com/@theoreticalcs/building-a-smarter-sat-solver-integrating-vsids-7523473958fb)
 - [x] Phase saving and restarting with luby sequence
-- [ ] Clause minimization
+- [x] Clause minimization (partial)
 - [ ] CNF reduction
-- [ ] Expr to CNF with Tseytin transformation
+- [ ] Two watched literals
+- [x] Replace hashset in clause analysis

@@ -1,6 +1,7 @@
-use rustc_hash::FxHashSet as HashSet;
-
 pub mod cnf;
+mod lit_set;
+
+use lit_set::LitSet;
 
 const VAR_DECAY: f32 = 0.95;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
@@ -32,8 +33,14 @@ impl Lit {
     pub fn neg(var: usize) -> Self {
         Lit { var, val: false }
     }
-}
 
+    pub fn negated(self) -> Self {
+        Lit {
+            var: self.var,
+            val: !self.val,
+        }
+    }
+}
 pub type Clause = Vec<Lit>;
 
 #[derive(Debug, Clone)]
@@ -165,20 +172,13 @@ impl Solver {
         self.var_inc /= VAR_DECAY;
     }
 
-    fn analyze_conflict(&mut self, id: ClauseId) -> (Clause, Lit, usize) {
-        let mut learned: HashSet<Lit> = HashSet::from_iter(self.clauses[id].clone());
+    fn analyze_conflict(&mut self, cid: ClauseId) -> (Clause, Lit, usize) {
+        let mut learned = LitSet::new(&self.clauses[cid], self);
         let start = *self.trail_lim.last().unwrap();
-        let current_level_assignments = &mut self.trail[start..];
+        let current_level_assignments = &self.trail[start..];
 
         for assignment in current_level_assignments.iter().rev() {
-            let num_current = learned
-                .iter()
-                .filter(|&lit| {
-                    self.assignments[lit.var].as_ref().unwrap().level == self.decision_level
-                })
-                .count();
-
-            if num_current == 1 {
+            if learned.num_current_level == 1 {
                 break;
             }
 
@@ -195,24 +195,15 @@ impl Solver {
             for &lit in &self.clauses[cid] {
                 bump_activity(lit.var, &mut self.activities, &mut self.var_inc);
             }
-            learned.extend(&self.clauses[cid]);
-            learned.remove(&Lit::pos(pivot));
-            learned.remove(&Lit::neg(pivot));
+            learned.extend(&self.clauses[cid], self);
+            learned.remove(&Lit::pos(pivot), self);
+            learned.remove(&Lit::neg(pivot), self);
         }
 
-        let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
-        let mut backjump_level = 0;
+        debug_assert!(learned.num_current_level == 1);
 
-        for &lit in &learned {
-            let level = self.assignments[lit.var].as_ref().unwrap().level;
-            if level == self.decision_level {
-                asserted_lit = lit;
-            } else {
-                backjump_level = backjump_level.max(level);
-            }
-        }
-
-        (learned.into_iter().collect(), asserted_lit, backjump_level)
+        learned.simplify(self);
+        learned.into_analysis_result(self)
     }
 
     fn pick_branch_lit(&self) -> Option<Lit> {
