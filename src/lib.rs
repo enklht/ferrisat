@@ -3,10 +3,10 @@ use rustc_hash::FxHashSet as HashSet;
 pub mod cnf;
 
 const VAR_DECAY: f32 = 0.95;
-const DECAY_INTERVAL: u32 = 100;
+const RESTART_INTERVAL_MULTIPLIER: usize = 100;
 const RESCALE_THRESHOLD: f32 = 1e30;
 
-fn bump(var: usize, activities: &mut [f32], var_inc: &mut f32) {
+fn bump_activity(var: usize, activities: &mut [f32], var_inc: &mut f32) {
     activities[var] += *var_inc;
 
     if activities[var] > RESCALE_THRESHOLD {
@@ -146,8 +146,12 @@ impl Solver {
         None
     }
 
-    fn backtrack(&mut self, target_level: usize) {
-        let cut = self.trail_lim[target_level];
+    fn backjump(&mut self, target_level: usize) {
+        if target_level == self.decision_level {
+            return;
+        }
+
+        let cut = self.trail_lim[target_level + 1];
 
         for assignment in self.trail.drain(cut..) {
             self.assignments[assignment.var()] = None;
@@ -164,9 +168,9 @@ impl Solver {
     fn analyze_conflict(&mut self, id: ClauseId) -> (Clause, Lit, usize) {
         let mut learned: HashSet<Lit> = HashSet::from_iter(self.clauses[id].clone());
         let start = *self.trail_lim.last().unwrap();
-        let current_assignments = &mut self.trail[start..];
+        let current_level_assignments = &mut self.trail[start..];
 
-        for assignment in current_assignments.iter().rev() {
+        for assignment in current_level_assignments.iter().rev() {
             let num_current = learned
                 .iter()
                 .filter(|&lit| {
@@ -189,7 +193,7 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
-                bump(lit.var, &mut self.activities, &mut self.var_inc);
+                bump_activity(lit.var, &mut self.activities, &mut self.var_inc);
             }
             learned.extend(&self.clauses[cid]);
             learned.remove(&Lit::pos(pivot));
@@ -240,36 +244,59 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> bool {
-        let mut t = 0;
-        loop {
-            if let Some(conflict_cid) = self.propagate() {
-                if self.decision_level == 0 {
-                    return false;
+        for num_restart in 0.. {
+            for _t in 0..restart_interval(num_restart) {
+                if let Some(conflict_cid) = self.propagate() {
+                    if self.decision_level == 0 {
+                        return false;
+                    }
+
+                    let (learned_clause, asserted_lit, backjump_level) =
+                        self.analyze_conflict(conflict_cid);
+
+                    self.clauses.push(learned_clause);
+
+                    debug_assert!(backjump_level < self.decision_level);
+                    self.backjump(backjump_level);
+
+                    self.assign(asserted_lit, Reason::Deduced(self.clauses.len() - 1));
+
+                    self.decay()
+                } else {
+                    let Some(lit) = self.pick_branch_lit() else {
+                        return true;
+                    };
+                    self.decision_level += 1;
+                    self.trail_lim.push(self.trail.len());
+                    self.assign(lit, Reason::Decided)
                 }
-
-                let (learned_clause, asserted_lit, backjump_level) =
-                    self.analyze_conflict(conflict_cid);
-
-                self.clauses.push(learned_clause);
-
-                self.backtrack(backjump_level);
-
-                self.assign(asserted_lit, Reason::Deduced(self.clauses.len() - 1));
-            } else {
-                let Some(lit) = self.pick_branch_lit() else {
-                    return true;
-                };
-                self.decision_level += 1;
-                self.trail_lim.push(self.trail.len());
-                self.assign(lit, Reason::Decided)
             }
 
-            if t % DECAY_INTERVAL == 0 {
-                self.decay();
-                t = 0
-            } else {
-                t += 1;
-            }
+            self.backjump(0);
         }
+
+        unreachable!()
     }
+}
+
+fn restart_interval(num_restart: usize) -> usize {
+    RESTART_INTERVAL_MULTIPLIER * luby(num_restart)
+}
+
+fn luby(mut i: usize) -> usize {
+    let mut size = 1;
+    let mut seq = 0;
+
+    while size < i + 1 {
+        seq += 1;
+        size = 2 * size + 1;
+    }
+
+    while size - 1 != i {
+        size = (size - 1) / 2;
+        seq -= 1;
+        i %= size;
+    }
+
+    2_usize.pow(seq)
 }
