@@ -40,6 +40,14 @@ impl Lit {
             val: !self.val,
         }
     }
+
+    fn to_index(self, num_vars: usize) -> usize {
+        if self.val {
+            num_vars + self.var
+        } else {
+            self.var
+        }
+    }
 }
 pub type Clause = Vec<Lit>;
 
@@ -79,23 +87,31 @@ enum ClauseState {
 pub struct Solver {
     num_vars: usize,
     clauses: Vec<Clause>,
+    watched_clauses: Vec<Vec<ClauseId>>,
+    // assignments
     assignments: Vec<Option<Assignment>>,
     saved_polarities: Vec<bool>,
+    // var activities
     var_inc: f32,
-    activities: Vec<f32>,
+    var_activities: Vec<f32>,
+    // trail
     trail: Vec<Assignment>,
     trail_lim: Vec<usize>,
+    up_top: usize,
     decision_level: usize,
 }
 
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
-        let mut activities = vec![0.; num_vars];
+        let mut var_activities = vec![0.; num_vars];
         let mut jw_weights = vec![0.; num_vars];
-        for clause in &clauses {
+        let mut watched_clauses = vec![Vec::new(); 2 * num_vars];
+
+        for (cid, clause) in clauses.iter().enumerate() {
             for lit in clause {
-                activities[lit.var] += 1.;
-                jw_weights[lit.var] += 2f32.powi(-(clause.len() as i32))
+                var_activities[lit.var] += 1.;
+                jw_weights[lit.var] += 2f32.powi(-(clause.len() as i32));
+                watched_clauses[lit.to_index(num_vars)].push(cid);
             }
         }
         let saved_polarities = jw_weights.iter().map(|&w| w >= 0.).collect();
@@ -103,12 +119,14 @@ impl Solver {
         Solver {
             num_vars,
             clauses,
+            watched_clauses,
             assignments: vec![None; num_vars],
             saved_polarities,
             var_inc: 1.,
-            activities,
+            var_activities,
             trail: Vec::new(),
             trail_lim: vec![0],
+            up_top: 0,
             decision_level: 0,
         }
     }
@@ -132,22 +150,21 @@ impl Solver {
     }
 
     fn propagate(&mut self) -> Option<ClauseId> {
-        let mut updated = true;
+        while self.trail.len() > self.up_top {
+            let assignment = &self.trail[self.up_top];
 
-        while updated {
-            updated = false;
+            let watch_index = assignment.lit.negated().to_index(self.num_vars);
 
-            for cid in 0..self.clauses.len() {
-                match self.clause_state(cid) {
+            for cid in &self.watched_clauses[watch_index].clone() {
+                match self.clause_state(*cid) {
                     ClauseState::Satisfied => {}
-                    ClauseState::Conflict => return Some(cid),
-                    ClauseState::Unit(lit) => {
-                        self.assign(lit, Reason::Deduced(cid));
-                        updated = true;
-                    }
+                    ClauseState::Conflict => return Some(*cid),
+                    ClauseState::Unit(lit) => self.assign(lit, Reason::Deduced(*cid)),
                     ClauseState::Unresolved => {}
                 }
             }
+
+            self.up_top += 1;
         }
 
         None
@@ -165,6 +182,7 @@ impl Solver {
         }
 
         self.trail_lim.truncate(target_level + 1);
+        self.up_top = self.trail.len();
         self.decision_level = target_level;
     }
 
@@ -193,7 +211,7 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
-                bump_activity(lit.var, &mut self.activities, &mut self.var_inc);
+                bump_activity(lit.var, &mut self.var_activities, &mut self.var_inc);
             }
             learned.extend(&self.clauses[cid], self);
             learned.remove(&Lit::pos(pivot), self);
@@ -207,19 +225,28 @@ impl Solver {
     }
 
     fn pick_branch_lit(&self) -> Option<Lit> {
-        use std::cmp::Ordering as O;
         let var = (0..self.num_vars)
             .filter(|&v| self.assignments[v].is_none())
             .max_by(|&u, &v| {
-                self.activities[u]
-                    .partial_cmp(&self.activities[v])
-                    .unwrap_or(O::Equal)
+                self.var_activities[u]
+                    .partial_cmp(&self.var_activities[v])
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })?;
 
         Some(Lit {
             var,
             val: self.saved_polarities[var],
         })
+    }
+
+    fn add_clause(&mut self, clause: Clause) {
+        let cid = self.clauses.len();
+
+        for &lit in &clause {
+            self.watched_clauses[lit.to_index(self.num_vars)].push(cid)
+        }
+
+        self.clauses.push(clause);
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
@@ -245,7 +272,7 @@ impl Solver {
                     let (learned_clause, asserted_lit, backjump_level) =
                         self.analyze_conflict(conflict_cid);
 
-                    self.clauses.push(learned_clause);
+                    self.add_clause(learned_clause);
 
                     debug_assert!(backjump_level < self.decision_level);
                     self.backjump(backjump_level);
