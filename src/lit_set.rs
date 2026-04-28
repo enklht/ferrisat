@@ -1,20 +1,16 @@
 use super::*;
 
 pub(crate) struct LitSet {
-    num_vars: usize,
     candidates: Vec<Lit>,
     seen: Vec<bool>,
     pub num_current_level: usize,
 }
 
 impl LitSet {
-    // considering that conflicting clause will never have both pos and neg,
-    // seen can be a vec of size num_vars and we dont need indices
     pub fn new(clause: &Clause, solver: &Solver) -> LitSet {
         let mut litset = LitSet {
-            num_vars: solver.num_vars,
             candidates: vec![],
-            seen: vec![false; 2 * solver.num_vars],
+            seen: vec![false; solver.num_vars],
             num_current_level: 0,
         };
 
@@ -23,51 +19,34 @@ impl LitSet {
         litset
     }
 
-    fn get_index(&self, lit: &Lit) -> usize {
-        if lit.val {
-            lit.var + self.num_vars
-        } else {
-            lit.var
-        }
-    }
-
     pub fn contains(&self, lit: &Lit) -> bool {
-        if lit.val {
-            self.seen[lit.var + self.num_vars]
-        } else {
-            self.seen[lit.var]
-        }
+        self.seen[lit.var]
     }
 
     pub fn extend(&mut self, clause: &Clause, solver: &Solver) {
         for lit in clause {
-            let index = self.get_index(lit);
-
-            if !self.seen[self.get_index(lit)]
+            if !self.seen[lit.var]
                 && solver.assignments[lit.var].as_ref().unwrap().level == solver.decision_level
             {
                 self.num_current_level += 1;
             }
-            self.seen[index] = true;
+            self.seen[lit.var] = true;
             self.candidates.push(*lit);
         }
     }
 
     pub fn remove(&mut self, lit: &Lit, solver: &Solver) {
-        let index = self.get_index(lit);
-
-        if self.seen[self.get_index(lit)]
+        if self.seen[lit.var]
             && solver.assignments[lit.var].as_ref().unwrap().level == solver.decision_level
         {
             self.num_current_level -= 1;
         }
-        self.seen[index] = false;
+        self.seen[lit.var] = false;
     }
 
     pub fn simplify(&mut self, solver: &Solver) {
         for lit in &self.candidates {
-            let index = self.get_index(lit);
-            if self.seen[self.get_index(lit)] {
+            if self.seen[lit.var] {
                 let assignment = solver.assignments[lit.var].as_ref().unwrap();
 
                 if assignment.level == solver.decision_level {
@@ -77,9 +56,9 @@ impl LitSet {
                 if let Reason::Deduced(cid) = assignment.reason
                     && solver.clauses[cid]
                         .iter()
-                        .all(|l| self.seen[self.get_index(l)] || *lit == l.negated())
+                        .all(|l| self.seen[l.var] || *lit == l.negated())
                 {
-                    self.seen[index] = false;
+                    self.seen[lit.var] = false;
                 }
             }
         }
@@ -91,8 +70,7 @@ impl LitSet {
         let mut backjump_level = 0;
 
         for lit in &self.candidates {
-            let index = self.get_index(lit);
-            if self.seen[index] {
+            if self.seen[lit.var] {
                 let level = solver.assignments[lit.var].as_ref().unwrap().level;
 
                 if level == solver.decision_level {
