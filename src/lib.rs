@@ -103,31 +103,39 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
-        let mut var_activities = vec![0.; num_vars];
-        let mut jw_weights = vec![0.; num_vars];
-        let mut watched_clauses = vec![Vec::new(); 2 * num_vars];
-
-        for (cid, clause) in clauses.iter().enumerate() {
-            for lit in clause {
-                var_activities[lit.var] += 1.;
-                jw_weights[lit.var] += 2f32.powi(-(clause.len() as i32));
-                watched_clauses[lit.to_index(num_vars)].push(cid);
-            }
-        }
-        let saved_polarities = jw_weights.iter().map(|&w| w >= 0.).collect();
-
-        Solver {
+        let mut solver = Solver {
             num_vars,
             clauses,
-            watched_clauses,
+            watched_clauses: vec![Vec::new(); 2 * num_vars],
             assignments: vec![None; num_vars],
-            saved_polarities,
+            saved_polarities: vec![true; num_vars],
             var_inc: 1.,
-            var_activities,
+            var_activities: vec![0.; num_vars],
             trail: Vec::new(),
             trail_lim: vec![0],
             up_top: 0,
             decision_level: 0,
+        };
+
+        solver.initialize();
+
+        solver
+    }
+
+    fn initialize(&mut self) {
+        let mut to_be_assigned = Vec::new();
+        for (cid, clause) in self.clauses.iter().enumerate() {
+            if clause.len() == 1 {
+                to_be_assigned.push((clause[0], Reason::Deduced(cid)));
+            }
+            for lit in clause {
+                self.var_activities[lit.var] += 1.;
+                self.watched_clauses[lit.to_index(self.num_vars)].push(cid);
+            }
+        }
+
+        for (lit, reason) in to_be_assigned {
+            self.assign(lit, reason);
         }
     }
 
