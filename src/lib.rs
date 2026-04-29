@@ -7,20 +7,9 @@ const VAR_DECAY: f32 = 0.95;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
 const RESCALE_THRESHOLD: f32 = 1e30;
 
-fn bump_activity(var: usize, activities: &mut [f32], var_inc: &mut f32) {
-    activities[var] += *var_inc;
-
-    if activities[var] > RESCALE_THRESHOLD {
-        *var_inc /= RESCALE_THRESHOLD;
-        for a in activities {
-            *a /= RESCALE_THRESHOLD;
-        }
-    }
-}
-
 pub type ClauseId = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Lit {
     var: usize,
     val: bool,
@@ -49,6 +38,7 @@ impl Lit {
         }
     }
 }
+
 pub type Clause = Vec<Lit>;
 
 #[derive(Debug, Clone)]
@@ -74,105 +64,168 @@ impl Assignment {
     }
 }
 
-#[derive(Debug, Clone)]
-
-enum ClauseState {
-    Satisfied,
-    Conflict,
-    Unit(Lit),
-    Unresolved,
-}
-
 #[derive(Debug)]
 pub struct Solver {
     num_vars: usize,
+    var_data: VarData,
     clauses: Vec<Clause>,
-    watched_clauses: Vec<Vec<ClauseId>>,
-    // assignments
-    assignments: Vec<Option<Assignment>>,
-    saved_polarities: Vec<bool>,
-    // var activities
-    var_inc: f32,
-    var_activities: Vec<f32>,
-    // trail
+    // states
     trail: Vec<Assignment>,
-    trail_lim: Vec<usize>,
-    up_top: usize,
+    decision_level_starts: Vec<usize>,
     decision_level: usize,
+    propagation_head: usize,
+}
+
+#[derive(Debug)]
+struct VarData {
+    num_vars: usize,
+    activity_inc: f32,
+    assignments: Vec<Option<Assignment>>,
+    activities: Vec<f32>,
+    saved_polarities: Vec<bool>,
+    watched_clauses: Vec<Vec<ClauseId>>,
+}
+
+impl VarData {
+    fn new(num_vars: usize) -> Self {
+        VarData {
+            num_vars,
+            activity_inc: 1.,
+            assignments: vec![None; num_vars],
+            activities: vec![0.; num_vars],
+            saved_polarities: vec![true; num_vars],
+            watched_clauses: vec![Vec::new(); 2 * num_vars],
+        }
+    }
+
+    fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
+        debug_assert!(self.assignments[lit.var].is_none());
+        let assignment = Assignment { lit, level, reason };
+        self.assignments[lit.var] = Some(assignment.clone());
+        self.saved_polarities[lit.var] = lit.val;
+        assignment
+    }
+
+    fn register(&mut self, clause: &Vec<Lit>, cid: usize) {
+        debug_assert!(clause.len() >= 2);
+        for lit in clause {
+            self.activities[lit.var] += 1.;
+        }
+        self.watched_clauses[clause[0].to_index(self.num_vars)].push(cid);
+        self.watched_clauses[clause[1].to_index(self.num_vars)].push(cid);
+    }
+
+    fn unassign(&mut self, var: usize) {
+        self.assignments[var] = None;
+    }
+
+    fn bump_activity(&mut self, var: usize) {
+        self.activities[var] += self.activity_inc;
+
+        if self.activities[var] > RESCALE_THRESHOLD {
+            self.activity_inc /= RESCALE_THRESHOLD;
+            for a in &mut self.activities {
+                *a /= RESCALE_THRESHOLD;
+            }
+        }
+    }
+
+    fn decay_activities(&mut self) {
+        self.activity_inc /= VAR_DECAY;
+    }
+
+    fn pick_branch_lit(&self) -> Option<Lit> {
+        let var = (0..self.num_vars)
+            .filter(|&v| self.assignments[v].is_none())
+            .max_by(|&u, &v| {
+                self.activities[u]
+                    .partial_cmp(&self.activities[v])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
+
+        Some(Lit {
+            var,
+            val: self.saved_polarities[var],
+        })
+    }
+
+    fn get_assigned_val(&self, lit: Lit) -> Option<bool> {
+        match &self.assignments[lit.var] {
+            Some(assignment) if assignment.val() == lit.val => Some(true),
+            Some(_) => Some(false),
+            None => None,
+        }
+    }
 }
 
 impl Solver {
-    pub fn new(num_vars: usize, clauses: Vec<Clause>) -> Self {
+    pub fn new(num_vars: usize, clauses: Vec<Vec<Lit>>) -> Self {
         let mut solver = Solver {
+            //variables
             num_vars,
-            clauses,
-            watched_clauses: vec![Vec::new(); 2 * num_vars],
-            assignments: vec![None; num_vars],
-            saved_polarities: vec![true; num_vars],
-            var_inc: 1.,
-            var_activities: vec![0.; num_vars],
+            var_data: VarData::new(num_vars),
+            // clauses
+            clauses: Vec::new(),
+            // states
             trail: Vec::new(),
-            trail_lim: vec![0],
-            up_top: 0,
+            decision_level_starts: vec![0],
             decision_level: 0,
+            propagation_head: 0,
         };
 
-        solver.initialize();
+        for clause in clauses {
+            solver.add_clause(clause);
+        }
 
         solver
     }
 
-    fn initialize(&mut self) {
-        let mut to_be_assigned = Vec::new();
-        for (cid, clause) in self.clauses.iter().enumerate() {
-            if clause.len() == 1 {
-                to_be_assigned.push((clause[0], Reason::Deduced(cid)));
-            }
-            for lit in clause {
-                self.var_activities[lit.var] += 1.;
-                self.watched_clauses[lit.to_index(self.num_vars)].push(cid);
-            }
-        }
-
-        for (lit, reason) in to_be_assigned {
-            self.assign(lit, reason);
-        }
-    }
-
-    fn clause_state(&self, cid: ClauseId) -> ClauseState {
-        let mut found = None;
-
-        for lit in &self.clauses[cid] {
-            match &self.assignments[lit.var] {
-                Some(assignment) if assignment.val() == lit.val => return ClauseState::Satisfied,
-                Some(_) => {}
-                None if found.is_some() => return ClauseState::Unresolved,
-                None => found = Some(*lit),
-            }
-        }
-
-        match found {
-            Some(lit) => ClauseState::Unit(lit),
-            None => ClauseState::Conflict,
-        }
-    }
-
     fn propagate(&mut self) -> Option<ClauseId> {
-        while self.trail.len() > self.up_top {
-            let assignment = &self.trail[self.up_top];
+        while self.trail.len() > self.propagation_head {
+            let lit_negated = self.trail[self.propagation_head].lit.negated();
+            let lit_negated_index = lit_negated.to_index(self.num_vars);
 
-            let watch_index = assignment.lit.negated().to_index(self.num_vars);
+            let mut i = 0;
+            while i < self.var_data.watched_clauses[lit_negated_index].len() {
+                let cid = self.var_data.watched_clauses[lit_negated_index][i];
+                let clause = &mut self.clauses[cid];
 
-            for cid in &self.watched_clauses[watch_index].clone() {
-                match self.clause_state(*cid) {
-                    ClauseState::Satisfied => {}
-                    ClauseState::Conflict => return Some(*cid),
-                    ClauseState::Unit(lit) => self.assign(lit, Reason::Deduced(*cid)),
-                    ClauseState::Unresolved => {}
+                debug_assert!(clause[0] == lit_negated || clause[1] == lit_negated);
+
+                if clause[0] != lit_negated {
+                    clause.swap(0, 1);
+                }
+
+                let other_watched = clause[1];
+                if self.var_data.get_assigned_val(other_watched) == Some(true) {
+                    i += 1;
+                    continue;
+                }
+
+                let mut found = false;
+                for (pos, lit) in clause[2..].iter().enumerate() {
+                    if self.var_data.get_assigned_val(*lit) != Some(false) {
+                        debug_assert_ne!(*lit, clause[1]);
+                        self.var_data.watched_clauses[lit_negated_index].swap_remove(i);
+                        self.var_data.watched_clauses[lit.to_index(self.num_vars)].push(cid);
+                        clause.swap(0, pos + 2);
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if !found {
+                    match self.var_data.get_assigned_val(other_watched) {
+                        Some(true) => unreachable!(),
+                        Some(false) => return Some(cid),
+                        None => self.assign(other_watched, Reason::Deduced(cid)),
+                    }
+                    i += 1;
                 }
             }
 
-            self.up_top += 1;
+            self.propagation_head += 1;
         }
 
         None
@@ -183,24 +236,20 @@ impl Solver {
             return;
         }
 
-        let cut = self.trail_lim[target_level + 1];
+        let cut = self.decision_level_starts[target_level + 1];
 
         for assignment in self.trail.drain(cut..) {
-            self.assignments[assignment.var()] = None;
+            self.var_data.unassign(assignment.var());
         }
 
-        self.trail_lim.truncate(target_level + 1);
-        self.up_top = self.trail.len();
+        self.decision_level_starts.truncate(target_level + 1);
+        self.propagation_head = self.trail.len();
         self.decision_level = target_level;
     }
 
-    fn decay(&mut self) {
-        self.var_inc /= VAR_DECAY;
-    }
-
-    fn analyze_conflict(&mut self, cid: ClauseId) -> (Clause, Lit, usize) {
+    fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, Lit, usize) {
         let mut learned = LitSet::new(&self.clauses[cid], self);
-        let start = *self.trail_lim.last().unwrap();
+        let start = *self.decision_level_starts.last().unwrap();
         let current_level_assignments = &self.trail[start..];
 
         for assignment in current_level_assignments.iter().rev() {
@@ -219,8 +268,9 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
-                bump_activity(lit.var, &mut self.var_activities, &mut self.var_inc);
+                self.var_data.bump_activity(lit.var);
             }
+
             learned.extend(&self.clauses[cid], self);
             learned.remove(&Lit::pos(pivot), self);
             learned.remove(&Lit::neg(pivot), self);
@@ -232,40 +282,23 @@ impl Solver {
         learned.into_analysis_result(self)
     }
 
-    fn pick_branch_lit(&self) -> Option<Lit> {
-        let var = (0..self.num_vars)
-            .filter(|&v| self.assignments[v].is_none())
-            .max_by(|&u, &v| {
-                self.var_activities[u]
-                    .partial_cmp(&self.var_activities[v])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })?;
-
-        Some(Lit {
-            var,
-            val: self.saved_polarities[var],
-        })
-    }
-
-    fn add_clause(&mut self, clause: Clause) {
+    fn add_clause(&mut self, mut clause: Vec<Lit>) {
         let cid = self.clauses.len();
 
-        for &lit in &clause {
-            self.watched_clauses[lit.to_index(self.num_vars)].push(cid)
+        clause.sort_unstable();
+        clause.dedup();
+
+        if clause.len() == 1 {
+            self.assign(clause[0], Reason::Deduced(cid))
+        } else {
+            self.var_data.register(&clause, cid);
         }
 
         self.clauses.push(clause);
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
-        debug_assert!(self.assignments[lit.var].is_none());
-        let assignment = Assignment {
-            lit,
-            level: self.decision_level,
-            reason,
-        };
-        self.assignments[lit.var] = Some(assignment.clone());
-        self.saved_polarities[lit.var] = lit.val;
+        let assignment = self.var_data.assign(lit, reason, self.decision_level);
         self.trail.push(assignment);
     }
 
@@ -287,13 +320,13 @@ impl Solver {
 
                     self.assign(asserted_lit, Reason::Deduced(self.clauses.len() - 1));
 
-                    self.decay()
+                    self.var_data.decay_activities()
                 } else {
-                    let Some(lit) = self.pick_branch_lit() else {
+                    let Some(lit) = self.var_data.pick_branch_lit() else {
                         return true;
                     };
                     self.decision_level += 1;
-                    self.trail_lim.push(self.trail.len());
+                    self.decision_level_starts.push(self.trail.len());
                     self.assign(lit, Reason::Decided)
                 }
             }

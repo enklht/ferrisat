@@ -1,9 +1,9 @@
-use crate::{Clause, Lit, Solver};
+use crate::{Lit, Solver};
 
 #[derive(Debug, Clone)]
 pub struct CnfFormula {
     pub num_vars: usize,
-    pub clauses: Vec<Clause>,
+    pub clauses: Vec<Vec<Lit>>,
 }
 
 impl CnfFormula {
@@ -16,7 +16,7 @@ pub fn parse_dimacs_cnf(input: &str) -> Result<CnfFormula, String> {
     let mut num_vars = None;
     let mut expected_clauses = None;
     let mut clauses = Vec::new();
-    let mut current_clause: Clause = Vec::new();
+    let mut current_clause: Vec<Lit> = Vec::new();
 
     for (line_no, raw_line) in input.lines().enumerate() {
         let line = raw_line.trim();

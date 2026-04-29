@@ -26,7 +26,8 @@ impl LitSet {
     pub fn extend(&mut self, clause: &Clause, solver: &Solver) {
         for lit in clause {
             if !self.seen[lit.var]
-                && solver.assignments[lit.var].as_ref().unwrap().level == solver.decision_level
+                && solver.var_data.assignments[lit.var].as_ref().unwrap().level
+                    == solver.decision_level
             {
                 self.num_current_level += 1;
             }
@@ -37,7 +38,7 @@ impl LitSet {
 
     pub fn remove(&mut self, lit: &Lit, solver: &Solver) {
         if self.seen[lit.var]
-            && solver.assignments[lit.var].as_ref().unwrap().level == solver.decision_level
+            && solver.var_data.assignments[lit.var].as_ref().unwrap().level == solver.decision_level
         {
             self.num_current_level -= 1;
         }
@@ -47,7 +48,7 @@ impl LitSet {
     pub fn simplify(&mut self, solver: &Solver) {
         for lit in &self.candidates {
             if self.seen[lit.var] {
-                let assignment = solver.assignments[lit.var].as_ref().unwrap();
+                let assignment = solver.var_data.assignments[lit.var].as_ref().unwrap();
 
                 if assignment.level == solver.decision_level {
                     continue;
@@ -64,14 +65,14 @@ impl LitSet {
         }
     }
 
-    pub fn into_analysis_result(self, solver: &Solver) -> (Clause, Lit, usize) {
+    pub fn into_analysis_result(self, solver: &Solver) -> (Vec<Lit>, Lit, usize) {
         let mut clause = Vec::new();
         let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
         let mut backjump_level = 0;
 
         for lit in &self.candidates {
             if self.seen[lit.var] {
-                let level = solver.assignments[lit.var].as_ref().unwrap().level;
+                let level = solver.var_data.assignments[lit.var].as_ref().unwrap().level;
 
                 if level == solver.decision_level {
                     asserted_lit = *lit;
