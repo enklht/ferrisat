@@ -7,5 +7,5 @@
 - [x] Phase saving and restarting with luby sequence
 - [x] Clause minimization (partial)
 - [ ] CNF reduction
-- [ ] Two watched literals
+- [x] Two watched literals
 - [x] Replace hashset in clause analysis

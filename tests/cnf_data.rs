@@ -96,6 +96,16 @@ fn uf250_1065() {
 }
 
 #[test]
+#[ignore]
+fn uuf250_1065() {
+    for i in 1..=1 {
+        let path = format!("data/uuf250-1065/uuf250-0{i}.cnf");
+        let mut solver = construct_solver(path);
+        assert!(!solver.solve());
+    }
+}
+
+#[test]
 fn blocksworld() {
     let paths = [
         "data/blocksworld/anomaly.cnf".to_string(),

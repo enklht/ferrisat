@@ -1,7 +1,9 @@
 pub mod cnf;
 mod lit_set;
+mod var_data;
 
 use lit_set::LitSet;
+use var_data::VarData;
 
 const VAR_DECAY: f32 = 0.95;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
@@ -27,14 +29,6 @@ impl Lit {
         Lit {
             var: self.var,
             val: !self.val,
-        }
-    }
-
-    fn to_index(self, num_vars: usize) -> usize {
-        if self.val {
-            num_vars + self.var
-        } else {
-            self.var
         }
     }
 }
@@ -75,92 +69,6 @@ pub struct Solver {
     decision_level_starts: Vec<usize>,
     decision_level: usize,
     propagation_head: usize,
-}
-
-#[derive(Debug)]
-struct VarData {
-    num_vars: usize,
-    activity_inc: f32,
-    assignments: Vec<Option<Assignment>>,
-    activities: Vec<f32>,
-    saved_polarities: Vec<bool>,
-    watched_clauses: Vec<Vec<ClauseId>>,
-}
-
-impl VarData {
-    fn new(num_vars: usize) -> Self {
-        VarData {
-            num_vars,
-            activity_inc: 1.,
-            assignments: vec![None; num_vars],
-            activities: vec![0.; num_vars],
-            saved_polarities: vec![true; num_vars],
-            watched_clauses: vec![Vec::new(); 2 * num_vars],
-        }
-    }
-
-    fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
-        debug_assert!(self.assignments[lit.var].is_none());
-        let assignment = Assignment { lit, level, reason };
-        self.assignments[lit.var] = Some(assignment.clone());
-        self.saved_polarities[lit.var] = lit.val;
-        assignment
-    }
-
-    fn register(&mut self, clause: &Vec<Lit>, cid: usize) {
-        debug_assert!(clause.len() >= 2);
-        for lit in clause {
-            self.activities[lit.var] += 1.;
-        }
-        self.watched_clauses[clause[0].to_index(self.num_vars)].push(cid);
-        self.watched_clauses[clause[1].to_index(self.num_vars)].push(cid);
-    }
-
-    fn unassign(&mut self, var: usize) {
-        self.assignments[var] = None;
-    }
-
-    fn bump_activity(&mut self, var: usize) {
-        self.activities[var] += self.activity_inc;
-
-        if self.activities[var] > RESCALE_THRESHOLD {
-            self.activity_inc /= RESCALE_THRESHOLD;
-            for a in &mut self.activities {
-                *a /= RESCALE_THRESHOLD;
-            }
-        }
-    }
-
-    fn decay_activities(&mut self) {
-        self.activity_inc /= VAR_DECAY;
-    }
-
-    fn pick_branch_lit(&self) -> Option<Lit> {
-        let var = (0..self.num_vars)
-            .filter(|&v| self.assignments[v].is_none())
-            .max_by(|&u, &v| {
-                self.activities[u]
-                    .partial_cmp(&self.activities[v])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })?;
-
-        Some(Lit {
-            var,
-            val: self.saved_polarities[var],
-        })
-    }
-
-    fn get_assigned_val(&self, lit: Lit) -> Option<bool> {
-        match &self.assignments[lit.var] {
-            Some(assignment) if assignment.val() == lit.val => Some(true),
-            Some(_) => Some(false),
-            None => None,
-        }
-    }
-
-    fn assignment_of(&self, var: usize) -> &Assignment {
-        self.assignments[var].as_ref().unwrap()
-    }
 }
 
 enum ClauseResult {
@@ -225,19 +133,17 @@ impl Solver {
     }
 
     fn propagate_literal(&mut self, falsified: Lit) -> Option<ClauseId> {
-        let watch_idx = falsified.to_index(self.num_vars);
-
         let mut i = 0;
-        while i < self.var_data.watched_clauses[watch_idx].len() {
-            let cid = self.var_data.watched_clauses[watch_idx][i];
+        while i < self.var_data.watched_clause(falsified).len() {
+            let cid = self.var_data.watched_clause(falsified)[i];
 
             match self.propagate_clause(cid, falsified) {
                 ClauseResult::WatchKept => {
                     i += 1;
                 }
                 ClauseResult::WatchMoved(new_lit) => {
-                    self.var_data.watched_clauses[watch_idx].swap_remove(i);
-                    self.var_data.watched_clauses[new_lit.to_index(self.num_vars)].push(cid);
+                    self.var_data.watched_clause(falsified).swap_remove(i);
+                    self.var_data.watched_clause(new_lit).push(cid);
                 }
                 ClauseResult::Conflict => {
                     return Some(cid);
