@@ -43,8 +43,9 @@ pub type Clause = Vec<Lit>;
 
 #[derive(Debug, Clone)]
 enum Reason {
-    Decided,
+    Guessed,
     Deduced(ClauseId),
+    Fixed,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +157,17 @@ impl VarData {
             None => None,
         }
     }
+
+    fn assignment_of(&self, var: usize) -> &Assignment {
+        self.assignments[var].as_ref().unwrap()
+    }
+}
+
+enum ClauseResult {
+    WatchKept,
+    WatchMoved(Lit),
+    Conflict,
+    Unit(Lit),
 }
 
 impl Solver {
@@ -166,7 +178,7 @@ impl Solver {
             var_data: VarData::new(num_vars),
             // clauses
             clauses: Vec::new(),
-            // states
+            // solver states
             trail: Vec::new(),
             decision_level_starts: vec![0],
             decision_level: 0,
@@ -180,52 +192,74 @@ impl Solver {
         solver
     }
 
-    fn propagate(&mut self) -> Option<ClauseId> {
-        while self.trail.len() > self.propagation_head {
-            let lit_negated = self.trail[self.propagation_head].lit.negated();
-            let lit_negated_index = lit_negated.to_index(self.num_vars);
+    fn propagate_clause(&mut self, cid: ClauseId, falsified: Lit) -> ClauseResult {
+        let clause = &mut self.clauses[cid];
 
-            let mut i = 0;
-            while i < self.var_data.watched_clauses[lit_negated_index].len() {
-                let cid = self.var_data.watched_clauses[lit_negated_index][i];
-                let clause = &mut self.clauses[cid];
+        if clause[0] != falsified {
+            clause.swap(0, 1);
+        }
 
-                debug_assert!(clause[0] == lit_negated || clause[1] == lit_negated);
+        debug_assert!(clause[0] == falsified || clause[1] != falsified);
 
-                if clause[0] != lit_negated {
-                    clause.swap(0, 1);
-                }
+        let other = clause[1];
 
-                let other_watched = clause[1];
-                if self.var_data.get_assigned_val(other_watched) == Some(true) {
+        if self.var_data.get_assigned_val(other) == Some(true) {
+            return ClauseResult::WatchKept;
+        }
+
+        for i in 2..clause.len() {
+            let lit = clause[i];
+
+            if self.var_data.get_assigned_val(lit) != Some(false) {
+                debug_assert_ne!(lit, other);
+                clause.swap(0, i);
+                return ClauseResult::WatchMoved(lit);
+            }
+        }
+
+        match self.var_data.get_assigned_val(other) {
+            Some(false) => ClauseResult::Conflict,
+            None => ClauseResult::Unit(other),
+            Some(true) => unreachable!(),
+        }
+    }
+
+    fn propagate_literal(&mut self, falsified: Lit) -> Option<ClauseId> {
+        let watch_idx = falsified.to_index(self.num_vars);
+
+        let mut i = 0;
+        while i < self.var_data.watched_clauses[watch_idx].len() {
+            let cid = self.var_data.watched_clauses[watch_idx][i];
+
+            match self.propagate_clause(cid, falsified) {
+                ClauseResult::WatchKept => {
                     i += 1;
-                    continue;
                 }
-
-                let mut found = false;
-                for (pos, lit) in clause[2..].iter().enumerate() {
-                    if self.var_data.get_assigned_val(*lit) != Some(false) {
-                        debug_assert_ne!(*lit, clause[1]);
-                        self.var_data.watched_clauses[lit_negated_index].swap_remove(i);
-                        self.var_data.watched_clauses[lit.to_index(self.num_vars)].push(cid);
-                        clause.swap(0, pos + 2);
-
-                        found = true;
-                        break;
-                    }
+                ClauseResult::WatchMoved(new_lit) => {
+                    self.var_data.watched_clauses[watch_idx].swap_remove(i);
+                    self.var_data.watched_clauses[new_lit.to_index(self.num_vars)].push(cid);
                 }
-
-                if !found {
-                    match self.var_data.get_assigned_val(other_watched) {
-                        Some(true) => unreachable!(),
-                        Some(false) => return Some(cid),
-                        None => self.assign(other_watched, Reason::Deduced(cid)),
-                    }
+                ClauseResult::Conflict => {
+                    return Some(cid);
+                }
+                ClauseResult::Unit(unit_lit) => {
+                    self.assign(unit_lit, Reason::Deduced(cid));
                     i += 1;
                 }
             }
+        }
 
+        None
+    }
+
+    fn propagate(&mut self) -> Option<ClauseId> {
+        while self.trail.len() > self.propagation_head {
+            let falsified = self.trail[self.propagation_head].lit.negated();
             self.propagation_head += 1;
+
+            if let Some(conflict) = self.propagate_literal(falsified) {
+                return Some(conflict);
+            }
         }
 
         None
@@ -259,7 +293,7 @@ impl Solver {
 
             let pivot = assignment.var();
 
-            if !learned.contains(&Lit::pos(pivot)) && !learned.contains(&Lit::neg(pivot)) {
+            if !learned.contains(Lit::pos(pivot)) && !learned.contains(Lit::neg(pivot)) {
                 continue;
             }
 
@@ -272,8 +306,8 @@ impl Solver {
             }
 
             learned.extend(&self.clauses[cid], self);
-            learned.remove(&Lit::pos(pivot), self);
-            learned.remove(&Lit::neg(pivot), self);
+            learned.remove(Lit::pos(pivot), self);
+            learned.remove(Lit::neg(pivot), self);
         }
 
         debug_assert!(learned.num_current_level == 1);
@@ -282,19 +316,20 @@ impl Solver {
         learned.into_analysis_result(self)
     }
 
-    fn add_clause(&mut self, mut clause: Vec<Lit>) {
-        let cid = self.clauses.len();
-
+    fn add_clause(&mut self, mut clause: Vec<Lit>) -> Option<usize> {
         clause.sort_unstable();
         clause.dedup();
 
         if clause.len() == 1 {
-            self.assign(clause[0], Reason::Deduced(cid))
-        } else {
-            self.var_data.register(&clause, cid);
+            self.assign(clause[0], Reason::Fixed);
+            return None;
         }
 
+        let cid = self.clauses.len();
+        self.var_data.register(&clause, cid);
         self.clauses.push(clause);
+
+        Some(cid)
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
@@ -313,21 +348,21 @@ impl Solver {
                     let (learned_clause, asserted_lit, backjump_level) =
                         self.analyze_conflict(conflict_cid);
 
-                    self.add_clause(learned_clause);
-
                     debug_assert!(backjump_level < self.decision_level);
                     self.backjump(backjump_level);
 
-                    self.assign(asserted_lit, Reason::Deduced(self.clauses.len() - 1));
+                    if let Some(cid) = self.add_clause(learned_clause) {
+                        self.assign(asserted_lit, Reason::Deduced(cid));
+                    }
 
-                    self.var_data.decay_activities()
+                    self.var_data.decay_activities();
                 } else {
                     let Some(lit) = self.var_data.pick_branch_lit() else {
                         return true;
                     };
                     self.decision_level += 1;
                     self.decision_level_starts.push(self.trail.len());
-                    self.assign(lit, Reason::Decided)
+                    self.assign(lit, Reason::Guessed)
                 }
             }
 
@@ -335,6 +370,14 @@ impl Solver {
         }
 
         unreachable!()
+    }
+
+    fn assignment_of(&self, lit: Lit) -> &Assignment {
+        self.var_data.assignment_of(lit.var)
+    }
+
+    fn is_current_level(&self, lit: Lit) -> bool {
+        self.var_data.assignment_of(lit.var).level == self.decision_level
     }
 }
 
