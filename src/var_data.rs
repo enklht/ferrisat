@@ -34,7 +34,12 @@ impl VarData {
 
     pub fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
         debug_assert!(self.assignments[lit.var].is_none());
-        let assignment = Assignment { lit, level, reason };
+        let assignment = Assignment {
+            var: lit.var,
+            val: lit.val,
+            level,
+            reason,
+        };
         self.assignments[lit.var] = Some(assignment.clone());
         self.saved_polarities[lit.var] = lit.val;
         assignment
@@ -83,9 +88,9 @@ impl VarData {
         })
     }
 
-    pub fn get_assigned_val(&self, lit: Lit) -> Option<bool> {
+    pub fn assigned_val_of(&self, lit: Lit) -> Option<bool> {
         match &self.assignments[lit.var] {
-            Some(assignment) if assignment.val() == lit.val => Some(true),
+            Some(assignment) if assignment.val == lit.val => Some(true),
             Some(_) => Some(false),
             None => None,
         }

@@ -44,18 +44,18 @@ enum Reason {
 
 #[derive(Debug, Clone)]
 struct Assignment {
-    lit: Lit,
+    var: usize,
+    val: bool,
     level: usize,
     reason: Reason,
 }
 
 impl Assignment {
-    fn var(&self) -> usize {
-        self.lit.var
-    }
-
-    fn val(&self) -> bool {
-        self.lit.val
+    fn falsified(&self) -> Lit {
+        Lit {
+            var: self.var,
+            val: !self.val,
+        }
     }
 }
 
@@ -111,21 +111,21 @@ impl Solver {
 
         let other = clause[1];
 
-        if self.var_data.get_assigned_val(other) == Some(true) {
+        if self.var_data.assigned_val_of(other) == Some(true) {
             return ClauseResult::WatchKept;
         }
 
         for i in 2..clause.len() {
             let lit = clause[i];
 
-            if self.var_data.get_assigned_val(lit) != Some(false) {
+            if self.var_data.assigned_val_of(lit) != Some(false) {
                 debug_assert_ne!(lit, other);
                 clause.swap(0, i);
                 return ClauseResult::WatchMoved(lit);
             }
         }
 
-        match self.var_data.get_assigned_val(other) {
+        match self.var_data.assigned_val_of(other) {
             Some(false) => ClauseResult::Conflict,
             None => ClauseResult::Unit(other),
             Some(true) => unreachable!(),
@@ -160,7 +160,7 @@ impl Solver {
 
     fn propagate(&mut self) -> Option<ClauseId> {
         while self.trail.len() > self.propagation_head {
-            let falsified = self.trail[self.propagation_head].lit.negated();
+            let falsified = self.trail[self.propagation_head].falsified();
             self.propagation_head += 1;
 
             if let Some(conflict) = self.propagate_literal(falsified) {
@@ -179,7 +179,7 @@ impl Solver {
         let cut = self.decision_level_starts[target_level + 1];
 
         for assignment in self.trail.drain(cut..) {
-            self.var_data.unassign(assignment.var());
+            self.var_data.unassign(assignment.var);
         }
 
         self.decision_level_starts.truncate(target_level + 1);
@@ -197,7 +197,7 @@ impl Solver {
                 break;
             }
 
-            let pivot = assignment.var();
+            let pivot = assignment.var;
 
             if !learned.contains(Lit::pos(pivot)) && !learned.contains(Lit::neg(pivot)) {
                 continue;
@@ -279,7 +279,7 @@ impl Solver {
     }
 
     pub fn value_of(&self, var: usize) -> Option<bool> {
-        self.var_data.get_assigned_val(Lit::pos(var))
+        self.var_data.assigned_val_of(Lit::pos(var))
     }
 
     fn assignment_of(&self, lit: Lit) -> &Assignment {
