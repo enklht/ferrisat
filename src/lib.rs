@@ -372,6 +372,10 @@ impl Solver {
         unreachable!()
     }
 
+    pub fn value_of(&self, var: usize) -> Option<bool> {
+        self.var_data.get_assigned_val(Lit::pos(var))
+    }
+
     fn assignment_of(&self, lit: Lit) -> &Assignment {
         self.var_data.assignment_of(lit.var)
     }
