@@ -24,7 +24,8 @@ impl LitSet {
 
     pub fn extend(&mut self, clause: &Clause, solver: &Solver) {
         for &lit in clause {
-            if !self.seen[lit.var] && solver.is_current_level(lit) {
+            let assignment = solver.assignment_of(lit);
+            if !self.seen[lit.var] && assignment.level == solver.decision_level {
                 self.num_current_level += 1;
             }
             self.seen[lit.var] = true;
@@ -33,13 +34,17 @@ impl LitSet {
     }
 
     pub fn remove(&mut self, lit: Lit, solver: &Solver) {
-        if self.seen[lit.var] && solver.is_current_level(lit) {
+        let assignment = solver.assignment_of(lit);
+        if self.seen[lit.var] && assignment.level == solver.decision_level {
             self.num_current_level -= 1;
         }
         self.seen[lit.var] = false;
     }
 
     pub fn simplify(&mut self, solver: &Solver) {
+        self.candidates.sort_unstable();
+        self.candidates.dedup();
+
         for &lit in &self.candidates {
             if self.seen[lit.var] {
                 let assignment = solver.assignment_of(lit);
@@ -48,10 +53,13 @@ impl LitSet {
                     continue;
                 }
 
-                if let Reason::Deduced(cid) = assignment.reason
-                    && solver.clauses[cid]
-                        .iter()
-                        .all(|l| self.seen[l.var] || lit == l.negated())
+                let Reason::Deduced(cid) = assignment.reason else {
+                    continue;
+                };
+
+                if solver.clauses[cid]
+                    .iter()
+                    .all(|l| self.seen[l.var] || lit == l.negated())
                 {
                     self.seen[lit.var] = false;
                 }
@@ -59,10 +67,11 @@ impl LitSet {
         }
     }
 
-    pub fn into_analysis_result(self, solver: &Solver) -> (Vec<Lit>, Lit, usize) {
+    pub fn into_analysis_result(self, solver: &Solver) -> (Vec<Lit>, u16, Lit, usize) {
         let mut clause = Vec::new();
         let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
         let mut backjump_level = 0;
+        let mut seen_levels = vec![false; solver.decision_level + 1];
 
         for &lit in &self.candidates {
             if self.seen[lit.var] {
@@ -74,10 +83,16 @@ impl LitSet {
                     backjump_level = backjump_level.max(level);
                 }
 
+                seen_levels[level] = true;
+
                 clause.push(lit);
+
+                // deduplication
+                // self.seen[lit.var] = false;
             }
         }
 
-        (clause, asserted_lit, backjump_level)
+        let lbd = seen_levels.iter().filter(|&seen| *seen).count() as u16;
+        (clause, lbd, asserted_lit, backjump_level)
     }
 }

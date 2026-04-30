@@ -64,6 +64,8 @@ pub struct Solver {
     num_vars: usize,
     var_data: VarData,
     clauses: Vec<Clause>,
+    clause_deleted: Vec<bool>,
+    clause_lbds: Vec<u16>,
     // states
     trail: Vec<Assignment>,
     decision_level_starts: Vec<usize>,
@@ -86,6 +88,8 @@ impl Solver {
             var_data: VarData::new(num_vars),
             // clauses
             clauses: Vec::new(),
+            clause_deleted: Vec::new(),
+            clause_lbds: Vec::new(),
             // solver states
             trail: Vec::new(),
             decision_level_starts: vec![0],
@@ -94,7 +98,7 @@ impl Solver {
         };
 
         for clause in clauses {
-            solver.add_clause(clause);
+            solver.add_clause(clause, 0);
         }
 
         solver
@@ -136,6 +140,11 @@ impl Solver {
         let mut i = 0;
         while i < self.var_data.watched_clause(falsified).len() {
             let cid = self.var_data.watched_clause(falsified)[i];
+
+            if self.clause_deleted[cid] {
+                self.var_data.watched_clause(falsified).swap_remove(i);
+                continue;
+            }
 
             match self.propagate_clause(cid, falsified) {
                 ClauseResult::WatchKept => {
@@ -187,7 +196,7 @@ impl Solver {
         self.decision_level = target_level;
     }
 
-    fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, Lit, usize) {
+    fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, u16, Lit, usize) {
         let mut learned = LitSet::new(&self.clauses[cid], self);
         let start = *self.decision_level_starts.last().unwrap();
         let current_level_assignments = &self.trail[start..];
@@ -222,10 +231,7 @@ impl Solver {
         learned.into_analysis_result(self)
     }
 
-    fn add_clause(&mut self, mut clause: Vec<Lit>) -> Option<usize> {
-        clause.sort_unstable();
-        clause.dedup();
-
+    fn add_clause(&mut self, clause: Vec<Lit>, lbd: u16) -> Option<usize> {
         if clause.len() == 1 {
             self.assign(clause[0], Reason::Fixed);
             return None;
@@ -234,6 +240,8 @@ impl Solver {
         let cid = self.clauses.len();
         self.var_data.register(&clause, cid);
         self.clauses.push(clause);
+        self.clause_deleted.push(false);
+        self.clause_lbds.push(lbd);
 
         Some(cid)
     }
@@ -251,13 +259,13 @@ impl Solver {
                         return false;
                     }
 
-                    let (learned_clause, asserted_lit, backjump_level) =
+                    let (learned_clause, lbd, asserted_lit, backjump_level) =
                         self.analyze_conflict(conflict_cid);
 
                     debug_assert!(backjump_level < self.decision_level);
                     self.backjump(backjump_level);
 
-                    if let Some(cid) = self.add_clause(learned_clause) {
+                    if let Some(cid) = self.add_clause(learned_clause, lbd) {
                         self.assign(asserted_lit, Reason::Deduced(cid));
                     }
 
@@ -272,22 +280,26 @@ impl Solver {
                 }
             }
 
+            if num_restart % 50 == 0 {
+                for cid in 0..self.clauses.len() {
+                    if self.clause_lbds[cid] > 7 {
+                        self.clause_deleted[cid] = true;
+                    }
+                }
+            }
+
             self.backjump(0);
         }
 
         unreachable!()
     }
 
-    pub fn value_of(&self, var: usize) -> Option<bool> {
-        self.var_data.assigned_val_of(Lit::pos(var))
-    }
-
     fn assignment_of(&self, lit: Lit) -> &Assignment {
         self.var_data.assignment_of(lit.var)
     }
 
-    fn is_current_level(&self, lit: Lit) -> bool {
-        self.var_data.assignment_of(lit.var).level == self.decision_level
+    pub fn value_of(&self, var: usize) -> Option<bool> {
+        self.var_data.assigned_val_of(Lit::pos(var))
     }
 }
 

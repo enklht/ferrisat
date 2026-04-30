@@ -21,8 +21,7 @@ fn construct_solver(path: String) -> Solver {
 }
 
 fn main() {
-    let i = 1;
-    let path = format!("data/uuf250-1065/uuf250-0{i}.cnf");
+    let path = "data/uuf250-1065/uuf250-01.cnf".to_string();
     let mut solver = construct_solver(path);
     assert!(!solver.solve());
 }
