@@ -11,25 +11,43 @@ const RESCALE_THRESHOLD: f32 = 1e30;
 
 pub type ClauseId = usize;
 
+const SIGN_BIT: usize = 1 << (usize::BITS as usize - 1);
+const VAR_MASK: usize = !SIGN_BIT;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Lit {
-    var: usize,
-    val: bool,
-}
+pub struct Lit(usize);
 
 impl Lit {
-    pub fn pos(var: usize) -> Self {
-        Lit { var, val: true }
-    }
-    pub fn neg(var: usize) -> Self {
-        Lit { var, val: false }
+    #[inline]
+    pub fn new(var: usize, val: bool) -> Self {
+        if val { Self::pos(var) } else { Self::neg(var) }
     }
 
+    #[inline]
+    pub fn pos(var: usize) -> Self {
+        debug_assert!(var < VAR_MASK);
+        Lit(var) // sign bit = 0
+    }
+
+    #[inline]
+    pub fn neg(var: usize) -> Self {
+        debug_assert!(var < VAR_MASK);
+        Lit(var | SIGN_BIT)
+    }
+
+    #[inline]
     pub fn negated(self) -> Self {
-        Lit {
-            var: self.var,
-            val: !self.val,
-        }
+        Lit(self.0 ^ SIGN_BIT)
+    }
+
+    #[inline]
+    pub fn var(self) -> usize {
+        self.0 & VAR_MASK
+    }
+
+    #[inline]
+    pub fn val(self) -> bool {
+        (self.0 & SIGN_BIT) != 0
     }
 }
 
@@ -51,11 +69,11 @@ struct Assignment {
 
 impl Assignment {
     fn var(&self) -> usize {
-        self.lit.var
+        self.lit.var()
     }
 
     fn val(&self) -> bool {
-        self.lit.val
+        self.lit.val()
     }
 }
 
@@ -208,7 +226,7 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
-                self.var_data.bump_activity(lit.var);
+                self.var_data.bump_activity(lit.var());
             }
 
             learned.extend(&self.clauses[cid], self);
@@ -283,11 +301,11 @@ impl Solver {
     }
 
     fn assignment_of(&self, lit: Lit) -> &Assignment {
-        self.var_data.assignment_of(lit.var)
+        self.var_data.assignment_of(lit.var())
     }
 
     fn is_current_level(&self, lit: Lit) -> bool {
-        self.var_data.assignment_of(lit.var).level == self.decision_level
+        self.var_data.assignment_of(lit.var()).level == self.decision_level
     }
 }
 
