@@ -4,7 +4,9 @@ use super::*;
 pub struct VarData {
     num_vars: usize,
     activity_inc: f32,
-    assignments: Vec<Option<Assignment>>,
+    values: Vec<i8>,
+    levels: Vec<usize>,
+    reasons: Vec<Option<usize>>,
     activities: Vec<f32>,
     saved_polarities: Vec<bool>,
     watched_pos: Vec<Vec<ClauseId>>,
@@ -16,7 +18,9 @@ impl VarData {
         VarData {
             num_vars,
             activity_inc: 1.,
-            assignments: vec![None; num_vars],
+            values: vec![-1; num_vars],
+            levels: vec![0; num_vars],
+            reasons: vec![None; num_vars],
             activities: vec![0.; num_vars],
             saved_polarities: vec![true; num_vars],
             watched_pos: vec![Vec::new(); num_vars],
@@ -32,17 +36,21 @@ impl VarData {
         }
     }
 
-    pub fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
-        debug_assert!(self.assignments[lit.var()].is_none());
-        let assignment = Assignment {
-            var: lit.var(),
+    pub fn assign(&mut self, lit: Lit, reason: Option<usize>, level: usize) -> Assignment {
+        let var = lit.var();
+        debug_assert!(self.values[var] == -1);
+
+        self.values[var] = if lit.val() { 1 } else { 0 };
+        self.levels[var] = level;
+        self.reasons[var] = reason;
+
+        self.saved_polarities[var] = lit.val();
+
+        Assignment {
+            var,
             val: lit.val(),
-            level,
             reason,
-        };
-        self.assignments[lit.var()] = Some(assignment.clone());
-        self.saved_polarities[lit.var()] = lit.val();
-        assignment
+        }
     }
 
     pub fn register(&mut self, clause: &Vec<Lit>, cid: usize) {
@@ -55,7 +63,7 @@ impl VarData {
     }
 
     pub fn unassign(&mut self, var: usize) {
-        self.assignments[var] = None;
+        self.values[var] = -1;
     }
 
     pub fn bump_activity(&mut self, var: usize) {
@@ -75,7 +83,7 @@ impl VarData {
 
     pub fn pick_branch_lit(&self) -> Option<Lit> {
         let var = (0..self.num_vars)
-            .filter(|&v| self.assignments[v].is_none())
+            .filter(|&v| self.values[v] == -1)
             .max_by(|&u, &v| {
                 self.activities[u]
                     .partial_cmp(&self.activities[v])
@@ -86,14 +94,21 @@ impl VarData {
     }
 
     pub fn assigned_val_of(&self, lit: Lit) -> Option<bool> {
-        match &self.assignments[lit.var()] {
-            Some(assignment) if assignment.val == lit.val() => Some(true),
-            Some(_) => Some(false),
-            None => None,
+        let a = self.values[lit.var()];
+        if a < 0 {
+            None
+        } else {
+            Some((a == 1) == lit.val())
         }
     }
 
-    pub fn assignment_of(&self, var: usize) -> &Assignment {
-        self.assignments[var].as_ref().unwrap()
+    pub fn level_of(&self, var: usize) -> usize {
+        debug_assert!(self.values[var] >= 0);
+        self.levels[var]
+    }
+
+    pub fn reason_of(&self, var: usize) -> &Option<usize> {
+        debug_assert!(self.values[var] >= 0);
+        &self.reasons[var]
     }
 }

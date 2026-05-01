@@ -54,19 +54,19 @@ impl Lit {
 
 pub type Clause = Vec<Lit>;
 
-#[derive(Debug, Clone)]
-enum Reason {
-    Guessed,
-    Deduced(ClauseId),
-    Fixed,
-}
+// #[derive(Debug, Clone)]
+// enum Reason {
+//     Unassigned,
+//     Guessed,
+//     Deduced(ClauseId),
+//     Fixed,
+// }
 
 #[derive(Debug, Clone)]
 struct Assignment {
     var: usize,
     val: bool,
-    level: usize,
-    reason: Reason,
+    reason: Option<usize>,
 }
 
 impl Assignment {
@@ -178,7 +178,7 @@ impl Solver {
                     return Some(cid);
                 }
                 ClauseResult::Unit(unit_lit) => {
-                    self.assign(unit_lit, Reason::Deduced(cid));
+                    self.assign(unit_lit, Some(cid));
                     i += 1;
                 }
             }
@@ -232,7 +232,7 @@ impl Solver {
                 continue;
             }
 
-            let Reason::Deduced(cid) = assignment.reason else {
+            let Some(cid) = assignment.reason else {
                 continue;
             };
 
@@ -253,7 +253,7 @@ impl Solver {
 
     fn add_clause(&mut self, clause: Vec<Lit>, lbd: u16) -> Option<usize> {
         if clause.len() == 1 {
-            self.assign(clause[0], Reason::Fixed);
+            self.assign(clause[0], None);
             return None;
         }
 
@@ -266,7 +266,7 @@ impl Solver {
         Some(cid)
     }
 
-    fn assign(&mut self, lit: Lit, reason: Reason) {
+    fn assign(&mut self, lit: Lit, reason: Option<usize>) {
         let assignment = self.var_data.assign(lit, reason, self.decision_level);
         self.trail.push(assignment);
     }
@@ -286,7 +286,7 @@ impl Solver {
                     self.backjump(backjump_level);
 
                     if let Some(cid) = self.add_clause(learned_clause, lbd) {
-                        self.assign(asserted_lit, Reason::Deduced(cid));
+                        self.assign(asserted_lit, Some(cid));
                     }
 
                     self.var_data.decay_activities();
@@ -296,7 +296,7 @@ impl Solver {
                     };
                     self.decision_level += 1;
                     self.decision_level_starts.push(self.trail.len());
-                    self.assign(lit, Reason::Guessed)
+                    self.assign(lit, None)
                 }
             }
 
@@ -312,10 +312,6 @@ impl Solver {
         }
 
         unreachable!()
-    }
-
-    fn assignment_of(&self, lit: Lit) -> &Assignment {
-        self.var_data.assignment_of(lit.var())
     }
 
     pub fn value_of(&self, var: usize) -> Option<bool> {

@@ -24,13 +24,14 @@ impl LitSet {
 
     pub fn extend(&mut self, clause: &Clause, solver: &Solver) {
         for &lit in clause {
-            let assignment = solver.assignment_of(lit);
-
-            if !self.seen[lit.var()] {
-                self.seen[lit.var()] = true;
+            let var = lit.var();
+            if !self.seen[var] {
+                self.seen[var] = true;
                 self.candidates.push(lit);
 
-                if assignment.level == solver.decision_level {
+                let level = solver.var_data.level_of(var);
+
+                if level == solver.decision_level {
                     self.num_current_level += 1;
                 }
             }
@@ -38,8 +39,8 @@ impl LitSet {
     }
 
     pub fn remove(&mut self, lit: Lit, solver: &Solver) {
-        let assignment = solver.assignment_of(lit);
-        if self.seen[lit.var()] && assignment.level == solver.decision_level {
+        let var = lit.var();
+        if self.seen[var] && solver.var_data.level_of(var) == solver.decision_level {
             self.num_current_level -= 1;
         }
         self.seen[lit.var()] = false;
@@ -47,14 +48,14 @@ impl LitSet {
 
     pub fn simplify(&mut self, solver: &Solver) {
         for &lit in &self.candidates {
-            if self.seen[lit.var()] {
-                let assignment = solver.assignment_of(lit);
+            let var = lit.var();
 
-                if assignment.level == solver.decision_level {
+            if self.seen[var] {
+                if solver.var_data.level_of(var) == solver.decision_level {
                     continue;
                 }
 
-                let Reason::Deduced(cid) = assignment.reason else {
+                let &Some(cid) = solver.var_data.reason_of(var) else {
                     continue;
                 };
 
@@ -62,7 +63,7 @@ impl LitSet {
                     .iter()
                     .all(|l| self.seen[l.var()] || lit == l.negated())
                 {
-                    self.seen[lit.var()] = false;
+                    self.seen[var] = false;
                 }
             }
         }
@@ -76,7 +77,7 @@ impl LitSet {
 
         for &lit in &self.candidates {
             if self.seen[lit.var()] {
-                let level = solver.assignment_of(lit).level;
+                let level = solver.var_data.level_of(lit.var());
 
                 if level == solver.decision_level {
                     asserted_lit = lit;
