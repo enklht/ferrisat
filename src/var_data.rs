@@ -35,7 +35,7 @@ impl VarData {
     pub fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
         debug_assert!(self.assignments[lit.var()].is_none());
         let assignment = Assignment {
-            var: lit.var() as u16,
+            var: lit.var(),
             val: lit.val(),
             level,
             reason,
@@ -82,7 +82,7 @@ impl VarData {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })?;
 
-        Some(Lit::new(var as u16, self.saved_polarities[var]))
+        Some(Lit::new(var, self.saved_polarities[var]))
     }
 
     pub fn assigned_val_of(&self, lit: Lit) -> Option<bool> {

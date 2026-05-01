@@ -13,25 +13,25 @@ pub type ClauseId = usize;
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Lit(u16);
+pub struct Lit(usize);
 
-const SIGN_BIT: u16 = 1 << (u16::BITS - 1);
-const VAR_MASK: u16 = !SIGN_BIT;
+const SIGN_BIT: usize = 1 << (u16::BITS - 1);
+const VAR_MASK: usize = !SIGN_BIT;
 
 impl Lit {
     #[inline]
-    pub fn new(var: u16, val: bool) -> Self {
+    pub fn new(var: usize, val: bool) -> Self {
         if val { Lit::pos(var) } else { Lit::neg(var) }
     }
 
     #[inline]
-    pub fn pos(var: u16) -> Self {
+    pub fn pos(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
         Lit(var | SIGN_BIT)
     }
 
     #[inline]
-    pub fn neg(var: u16) -> Self {
+    pub fn neg(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
         Lit(var)
     }
@@ -43,7 +43,7 @@ impl Lit {
 
     #[inline]
     pub fn var(self) -> usize {
-        (self.0 & VAR_MASK) as usize
+        self.0 & VAR_MASK
     }
 
     #[inline]
@@ -63,7 +63,7 @@ enum Reason {
 
 #[derive(Debug, Clone)]
 struct Assignment {
-    var: u16,
+    var: usize,
     val: bool,
     level: usize,
     reason: Reason,
@@ -208,7 +208,7 @@ impl Solver {
         let cut = self.decision_level_starts[target_level + 1];
 
         for assignment in self.trail.drain(cut..) {
-            self.var_data.unassign(assignment.var as usize);
+            self.var_data.unassign(assignment.var);
         }
 
         self.decision_level_starts.truncate(target_level + 1);
@@ -319,7 +319,7 @@ impl Solver {
     }
 
     pub fn value_of(&self, var: usize) -> Option<bool> {
-        self.var_data.assigned_val_of(Lit::pos(var as u16))
+        self.var_data.assigned_val_of(Lit::pos(var))
     }
 }
 

@@ -8,8 +8,8 @@ fn var_index(row: usize, col: usize, digit: usize) -> usize {
 }
 
 fn add_exactly_one(clauses: &mut Vec<Vec<Lit>>, vars: &[usize]) {
-    let pos = |v| Lit::pos(v as u16);
-    let neg = |v| Lit::neg(v as u16);
+    let pos = Lit::pos;
+    let neg = Lit::neg;
 
     let mut clause = Vec::with_capacity(vars.len());
     for &var in vars {
@@ -24,10 +24,12 @@ fn add_exactly_one(clauses: &mut Vec<Vec<Lit>>, vars: &[usize]) {
     }
 }
 
+#[allow(unused_variables)]
 fn main() {
-    let mut clauses: Vec<Vec<Lit>> = Vec::new();
+    let pos = Lit::pos;
+    let neg = Lit::neg;
 
-    let pos = |v| Lit::pos(v as u16);
+    let mut clauses: Vec<Vec<Lit>> = Vec::new();
 
     // Each cell has exactly one digit.
     for row in 0..SIZE {

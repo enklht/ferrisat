@@ -69,9 +69,9 @@ pub fn parse_dimacs_cnf(input: &str) -> Result<CnfFormula, String> {
             }
 
             let lit = if lit > 0 {
-                Lit::pos(var as u16 - 1)
+                Lit::pos(var - 1)
             } else {
-                Lit::neg(var as u16 - 1)
+                Lit::neg(var - 1)
             };
             current_clause.push(lit);
         }

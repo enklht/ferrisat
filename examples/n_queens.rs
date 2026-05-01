@@ -6,8 +6,8 @@ fn var_index(n: usize, row: usize, col: usize) -> usize {
 
 fn main() {
     const N: usize = 8;
-    let pos = |v| Lit::pos(v as u16);
-    let neg = |v| Lit::neg(v as u16);
+    let pos = Lit::pos;
+    let neg = Lit::neg;
 
     let mut clauses: Vec<Vec<Lit>> = Vec::new();
 
