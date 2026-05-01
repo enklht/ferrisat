@@ -3,6 +3,7 @@ pub(crate) struct LitSet {
     candidates: Vec<Lit>,
     seen: Vec<bool>,
     pub num_current_level: usize,
+    decision_level: usize,
 }
 
 impl LitSet {
@@ -11,46 +12,49 @@ impl LitSet {
             candidates: vec![],
             seen: vec![false; solver.num_vars],
             num_current_level: 0,
+            decision_level: solver.decision_level,
         };
 
-        litset.extend(clause, solver);
+        litset.extend(clause, &solver.var_data);
 
         litset
     }
 
-    pub fn contains(&self, lit: Lit) -> bool {
-        self.seen[lit.var()]
+    pub fn contains(&self, var: usize) -> bool {
+        self.seen[var]
     }
 
-    pub fn extend(&mut self, clause: &Clause, solver: &Solver) {
+    pub fn extend(&mut self, clause: &Clause, var_data: &VarData) {
         for &lit in clause {
-            let assignment = solver.assignment_of(lit);
+            if self.seen[lit.var()] {
+                continue;
+            }
 
-            if !self.seen[lit.var()] {
-                self.seen[lit.var()] = true;
-                self.candidates.push(lit);
+            self.seen[lit.var()] = true;
+            self.candidates.push(lit);
 
-                if assignment.level == solver.decision_level {
-                    self.num_current_level += 1;
-                }
+            let assignment = var_data.assignment_of(lit.var());
+            if assignment.level == self.decision_level {
+                self.num_current_level += 1;
             }
         }
     }
 
-    pub fn remove(&mut self, lit: Lit, solver: &Solver) {
-        let assignment = solver.assignment_of(lit);
-        if self.seen[lit.var()] && assignment.level == solver.decision_level {
+    pub fn remove(&mut self, lit: Lit, var_data: &VarData) {
+        let var = lit.var();
+        let assignment = var_data.assignment_of(var);
+        if self.seen[var] && assignment.level == self.decision_level {
             self.num_current_level -= 1;
         }
         self.seen[lit.var()] = false;
     }
 
-    pub fn simplify(&mut self, solver: &Solver) {
+    pub fn simplify(&mut self, var_data: &VarData, clauses: &[Clause]) {
         for &lit in &self.candidates {
             if self.seen[lit.var()] {
-                let assignment = solver.assignment_of(lit);
+                let assignment = var_data.assignment_of(lit.var());
 
-                if assignment.level == solver.decision_level {
+                if assignment.level == self.decision_level {
                     continue;
                 }
 
@@ -58,7 +62,7 @@ impl LitSet {
                     continue;
                 };
 
-                if solver.clauses[cid]
+                if clauses[cid]
                     .iter()
                     .all(|l| self.seen[l.var()] || lit == l.negated())
                 {
@@ -68,17 +72,19 @@ impl LitSet {
         }
     }
 
-    pub fn into_analysis_result(self, solver: &Solver) -> (Vec<Lit>, u16, Lit, usize) {
+    pub fn into_analysis_result(self, var_data: &VarData) -> (Vec<Lit>, u16, Lit, usize) {
         let mut clause = Vec::new();
         let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
         let mut backjump_level = 0;
-        let mut seen_levels = vec![false; solver.decision_level + 1];
+        let mut seen_levels = vec![false; self.decision_level + 1];
 
         for &lit in &self.candidates {
-            if self.seen[lit.var()] {
-                let level = solver.assignment_of(lit).level;
+            let var = lit.var();
 
-                if level == solver.decision_level {
+            if self.seen[var] {
+                let level = var_data.assignment_of(var).level;
+
+                if level == self.decision_level {
                     asserted_lit = lit;
                 } else {
                     backjump_level = backjump_level.max(level);

@@ -19,7 +19,6 @@ const SIGN_BIT: usize = 1 << (u16::BITS - 1);
 const VAR_MASK: usize = !SIGN_BIT;
 
 impl Lit {
-    #[inline]
     pub fn new(var: usize, val: bool) -> Self {
         if val { Lit::pos(var) } else { Lit::neg(var) }
     }
@@ -79,6 +78,13 @@ impl Assignment {
     }
 }
 
+enum ClauseResult {
+    WatchKept,
+    WatchMoved(Lit),
+    Conflict,
+    Unit(Lit),
+}
+
 #[derive(Debug)]
 pub struct Solver {
     num_vars: usize,
@@ -91,13 +97,6 @@ pub struct Solver {
     decision_level_starts: Vec<usize>,
     decision_level: usize,
     propagation_head: usize,
-}
-
-enum ClauseResult {
-    WatchKept,
-    WatchMoved(Lit),
-    Conflict,
-    Unit(Lit),
 }
 
 impl Solver {
@@ -135,7 +134,9 @@ impl Solver {
 
         let other = clause[1];
 
-        if self.var_data.assigned_val_of(other) == Some(true) {
+        let assigned_val_of_other = self.var_data.assigned_val_of(other);
+
+        if assigned_val_of_other == Some(true) {
             return ClauseResult::WatchKept;
         }
 
@@ -149,7 +150,7 @@ impl Solver {
             }
         }
 
-        match self.var_data.assigned_val_of(other) {
+        match assigned_val_of_other {
             Some(false) => ClauseResult::Conflict,
             None => ClauseResult::Unit(other),
             Some(true) => unreachable!(),
@@ -218,6 +219,7 @@ impl Solver {
 
     fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, u16, Lit, usize) {
         let mut learned = LitSet::new(&self.clauses[cid], self);
+
         let start = *self.decision_level_starts.last().unwrap();
         let current_level_assignments = &self.trail[start..];
 
@@ -228,7 +230,7 @@ impl Solver {
 
             let pivot = assignment.var;
 
-            if !learned.contains(Lit::pos(pivot)) && !learned.contains(Lit::neg(pivot)) {
+            if !learned.contains(pivot) {
                 continue;
             }
 
@@ -240,15 +242,15 @@ impl Solver {
                 self.var_data.bump_activity(lit.var());
             }
 
-            learned.extend(&self.clauses[cid], self);
-            learned.remove(Lit::pos(pivot), self);
-            learned.remove(Lit::neg(pivot), self);
+            learned.extend(&self.clauses[cid], &self.var_data);
+            learned.remove(Lit::pos(pivot), &self.var_data);
+            learned.remove(Lit::neg(pivot), &self.var_data);
         }
 
         debug_assert!(learned.num_current_level == 1);
 
-        learned.simplify(self);
-        learned.into_analysis_result(self)
+        learned.simplify(&self.var_data, &self.clauses);
+        learned.into_analysis_result(&self.var_data)
     }
 
     fn add_clause(&mut self, clause: Vec<Lit>, lbd: u16) -> Option<usize> {
@@ -267,7 +269,7 @@ impl Solver {
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
-        let assignment = self.var_data.assign(lit, reason, self.decision_level);
+        let assignment = self.var_data.assign(lit, self.decision_level, reason);
         self.trail.push(assignment);
     }
 
@@ -312,10 +314,6 @@ impl Solver {
         }
 
         unreachable!()
-    }
-
-    fn assignment_of(&self, lit: Lit) -> &Assignment {
-        self.var_data.assignment_of(lit.var())
     }
 
     pub fn value_of(&self, var: usize) -> Option<bool> {

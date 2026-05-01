@@ -32,16 +32,19 @@ impl VarData {
         }
     }
 
-    pub fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
+    pub fn assign(&mut self, lit: Lit, level: usize, reason: Reason) -> Assignment {
         debug_assert!(self.assignments[lit.var()].is_none());
+
+        let var = lit.var();
+
         let assignment = Assignment {
-            var: lit.var(),
+            var,
             val: lit.val(),
             level,
             reason,
         };
-        self.assignments[lit.var()] = Some(assignment.clone());
-        self.saved_polarities[lit.var()] = lit.val();
+        self.assignments[var] = Some(assignment.clone());
+        self.saved_polarities[var] = lit.val();
         assignment
     }
 
