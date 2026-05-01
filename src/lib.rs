@@ -11,25 +11,44 @@ const RESCALE_THRESHOLD: f32 = 1e30;
 
 pub type ClauseId = usize;
 
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Lit {
-    var: usize,
-    val: bool,
-}
+pub struct Lit(u16);
+
+const SIGN_BIT: u16 = 1 << (u16::BITS - 1);
+const VAR_MASK: u16 = !SIGN_BIT;
 
 impl Lit {
-    pub fn pos(var: usize) -> Self {
-        Lit { var, val: true }
-    }
-    pub fn neg(var: usize) -> Self {
-        Lit { var, val: false }
+    #[inline]
+    pub fn new(var: u16, val: bool) -> Self {
+        if val { Lit::pos(var) } else { Lit::neg(var) }
     }
 
+    #[inline]
+    pub fn pos(var: u16) -> Self {
+        debug_assert!(var < VAR_MASK);
+        Lit(var | SIGN_BIT)
+    }
+
+    #[inline]
+    pub fn neg(var: u16) -> Self {
+        debug_assert!(var < VAR_MASK);
+        Lit(var)
+    }
+
+    #[inline]
     pub fn negated(self) -> Self {
-        Lit {
-            var: self.var,
-            val: !self.val,
-        }
+        Lit(self.0 ^ SIGN_BIT)
+    }
+
+    #[inline]
+    pub fn var(self) -> usize {
+        (self.0 & VAR_MASK) as usize
+    }
+
+    #[inline]
+    pub fn val(self) -> bool {
+        (self.0 & SIGN_BIT) != 0
     }
 }
 
@@ -44,7 +63,7 @@ enum Reason {
 
 #[derive(Debug, Clone)]
 struct Assignment {
-    var: usize,
+    var: u16,
     val: bool,
     level: usize,
     reason: Reason,
@@ -52,9 +71,10 @@ struct Assignment {
 
 impl Assignment {
     fn falsified(&self) -> Lit {
-        Lit {
-            var: self.var,
-            val: !self.val,
+        if self.val {
+            Lit::neg(self.var)
+        } else {
+            Lit::pos(self.var)
         }
     }
 }
@@ -188,7 +208,7 @@ impl Solver {
         let cut = self.decision_level_starts[target_level + 1];
 
         for assignment in self.trail.drain(cut..) {
-            self.var_data.unassign(assignment.var);
+            self.var_data.unassign(assignment.var as usize);
         }
 
         self.decision_level_starts.truncate(target_level + 1);
@@ -217,7 +237,7 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
-                self.var_data.bump_activity(lit.var);
+                self.var_data.bump_activity(lit.var());
             }
 
             learned.extend(&self.clauses[cid], self);
@@ -295,11 +315,11 @@ impl Solver {
     }
 
     fn assignment_of(&self, lit: Lit) -> &Assignment {
-        self.var_data.assignment_of(lit.var)
+        self.var_data.assignment_of(lit.var())
     }
 
     pub fn value_of(&self, var: usize) -> Option<bool> {
-        self.var_data.assigned_val_of(Lit::pos(var))
+        self.var_data.assigned_val_of(Lit::pos(var as u16))
     }
 }
 

@@ -5,8 +5,8 @@ fn var_index(row: usize, col: usize, symbol: usize, size: usize) -> usize {
 }
 
 fn add_exactly_one(clauses: &mut Vec<Vec<Lit>>, vars: &[usize]) {
-    let pos = Lit::pos;
-    let neg = Lit::neg;
+    let pos = |v| Lit::pos(v as u16);
+    let neg = |v| Lit::neg(v as u16);
 
     let mut clause = Vec::with_capacity(vars.len());
     for &var in vars {
@@ -22,6 +22,8 @@ fn add_exactly_one(clauses: &mut Vec<Vec<Lit>>, vars: &[usize]) {
 }
 
 fn main() {
+    let pos = |v| Lit::pos(v as u16);
+
     const SIZE: usize = 4;
     let mut clauses: Vec<Vec<Lit>> = Vec::new();
 
@@ -60,7 +62,7 @@ fn main() {
 
     // Symmetry breaking: fix first row to 1..SIZE.
     for col in 0..SIZE {
-        clauses.push(vec![Lit::pos(var_index(0, col, col, SIZE))]);
+        clauses.push(vec![pos(var_index(0, col, col, SIZE))]);
     }
 
     let mut solver = Solver::new(SIZE * SIZE * SIZE, clauses);

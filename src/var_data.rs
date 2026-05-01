@@ -25,30 +25,30 @@ impl VarData {
     }
 
     pub fn watched_clause(&mut self, lit: Lit) -> &mut Vec<ClauseId> {
-        if lit.val {
-            &mut self.watched_pos[lit.var]
+        if lit.val() {
+            &mut self.watched_pos[lit.var()]
         } else {
-            &mut self.watched_neg[lit.var]
+            &mut self.watched_neg[lit.var()]
         }
     }
 
     pub fn assign(&mut self, lit: Lit, reason: Reason, level: usize) -> Assignment {
-        debug_assert!(self.assignments[lit.var].is_none());
+        debug_assert!(self.assignments[lit.var()].is_none());
         let assignment = Assignment {
-            var: lit.var,
-            val: lit.val,
+            var: lit.var() as u16,
+            val: lit.val(),
             level,
             reason,
         };
-        self.assignments[lit.var] = Some(assignment.clone());
-        self.saved_polarities[lit.var] = lit.val;
+        self.assignments[lit.var()] = Some(assignment.clone());
+        self.saved_polarities[lit.var()] = lit.val();
         assignment
     }
 
     pub fn register(&mut self, clause: &Vec<Lit>, cid: usize) {
         debug_assert!(clause.len() >= 2);
         for lit in clause {
-            self.activities[lit.var] += 1.;
+            self.activities[lit.var()] += 1.;
         }
         self.watched_clause(clause[0]).push(cid);
         self.watched_clause(clause[1]).push(cid);
@@ -82,15 +82,12 @@ impl VarData {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })?;
 
-        Some(Lit {
-            var,
-            val: self.saved_polarities[var],
-        })
+        Some(Lit::new(var as u16, self.saved_polarities[var]))
     }
 
     pub fn assigned_val_of(&self, lit: Lit) -> Option<bool> {
-        match &self.assignments[lit.var] {
-            Some(assignment) if assignment.val == lit.val => Some(true),
+        match &self.assignments[lit.var()] {
+            Some(assignment) if assignment.val == lit.val() => Some(true),
             Some(_) => Some(false),
             None => None,
         }

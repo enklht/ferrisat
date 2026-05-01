@@ -7,8 +7,8 @@ fn var_index(num_holes: usize, pigeon: usize, hole: usize) -> usize {
 fn main() {
     const NUM_PIGEONS: usize = 3;
     const NUM_HOLES: usize = 2;
-    let pos = Lit::pos;
-    let neg = Lit::neg;
+    let pos = |v| Lit::pos(v as u16);
+    let neg = |v| Lit::neg(v as u16);
 
     let mut clauses: Vec<Vec<Lit>> = Vec::new();
 
