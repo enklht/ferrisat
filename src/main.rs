@@ -1,5 +1,4 @@
-use ferrisat::Solver;
-use ferrisat::cnf::parse_dimacs_cnf;
+use ferrisat::{CNF, Solver};
 use std::{env, fs, process};
 
 fn main() {
@@ -14,7 +13,7 @@ fn main() {
         process::exit(1);
     });
 
-    let formula = parse_dimacs_cnf(&contents).unwrap_or_else(|err| {
+    let formula = CNF::from_dimacs(&contents).unwrap_or_else(|err| {
         eprintln!("failed to parse {}: {}", path, err);
         process::exit(1);
     });

@@ -1,5 +1,4 @@
-use ferrisat::Solver;
-use ferrisat::cnf::parse_dimacs_cnf;
+use ferrisat::{CNF, Solver};
 use std::fs;
 use std::path::PathBuf;
 
@@ -9,7 +8,7 @@ fn construct_solver(path: String) -> Solver {
         fs::read_to_string(&full_path).unwrap_or_else(|e| panic!("failed to read {}: {}", path, e));
 
     let formula =
-        parse_dimacs_cnf(&content).unwrap_or_else(|e| panic!("failed to parse {}: {}", path, e));
+        CNF::from_dimacs(&content).unwrap_or_else(|e| panic!("failed to parse {}: {}", path, e));
     assert!(formula.num_vars > 0, "unexpected num_vars in {}", path);
     assert!(
         !formula.clauses.is_empty(),

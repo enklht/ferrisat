@@ -4,6 +4,7 @@ mod lit_set;
 mod var_data;
 
 use clause_data::ClauseData;
+pub use cnf::CNF;
 use lit_set::LitSet;
 use var_data::VarData;
 
@@ -19,8 +20,7 @@ pub type ClauseId = usize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Lit(usize);
 
-const SIGN_BIT: usize = 1 << (usize::BITS - 1);
-const VAR_MASK: usize = !SIGN_BIT;
+const VAR_MASK: usize = !1;
 
 impl Lit {
     pub fn new(var: usize, val: bool) -> Self {
@@ -29,24 +29,24 @@ impl Lit {
 
     pub fn pos(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
-        Lit(var | SIGN_BIT)
+        Lit(var << 1 | 1)
     }
 
     pub fn neg(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
-        Lit(var)
+        Lit(var << 1)
     }
 
     pub fn negated(self) -> Self {
-        Lit(self.0 ^ SIGN_BIT)
+        Lit(self.0 ^ 1)
     }
 
     pub fn var(self) -> usize {
-        self.0 & VAR_MASK
+        (self.0 & VAR_MASK) >> 1
     }
 
     pub fn val(self) -> bool {
-        (self.0 & SIGN_BIT) != 0
+        (self.0 & 1) != 0
     }
 }
 
