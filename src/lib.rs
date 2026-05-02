@@ -19,7 +19,7 @@ pub type ClauseId = usize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Lit(usize);
 
-const SIGN_BIT: usize = 1 << (u16::BITS - 1);
+const SIGN_BIT: usize = 1 << (usize::BITS - 1);
 const VAR_MASK: usize = !SIGN_BIT;
 
 impl Lit {
@@ -89,6 +89,7 @@ pub struct Solver {
     num_vars: usize,
     var_data: VarData,
     clause_data: ClauseData,
+    fixed_literals: Vec<Lit>,
     // states
     trail: Vec<Assignment>,
     decision_level_starts: Vec<usize>,
@@ -102,6 +103,7 @@ impl Solver {
             num_vars,
             var_data: VarData::new(num_vars),
             clause_data: ClauseData::new(),
+            fixed_literals: Vec::new(),
             // states
             trail: Vec::new(),
             decision_level_starts: vec![0],
@@ -203,6 +205,9 @@ impl Solver {
 
         for assignment in self.trail.drain(cut..) {
             self.var_data.unassign(assignment.var);
+            if let Reason::Deduced(cid) = assignment.reason {
+                self.clause_data.unlock(cid);
+            }
         }
 
         self.decision_level_starts.truncate(target_level + 1);
@@ -287,33 +292,43 @@ impl Solver {
     fn add_clause(&mut self, clause: Clause, lbd: u16) -> Option<usize> {
         if clause.len() == 1 {
             self.assign(clause[0], Reason::Fixed);
+            self.fixed_literals.push(clause[0]);
             return None;
         }
 
         let cid = self.clause_data.len();
         self.var_data.register(&clause, cid);
-        self.clause_data.push(clause, lbd);
+        self.clause_data.push(clause, false, lbd);
 
         Some(cid)
     }
 
     fn assign(&mut self, lit: Lit, reason: Reason) {
+        if let Reason::Deduced(cid) = reason {
+            self.clause_data.lock(cid);
+        }
+
         let assignment = self.var_data.assign(lit, self.decision_level, reason);
         self.trail.push(assignment);
     }
 
     fn compact(&mut self) {
-        self.var_data.clear();
         self.clause_data.compact();
+
+        self.trail.clear();
+        self.decision_level_starts.drain(1..);
+        self.propagation_head = 0;
+
+        self.var_data.clear();
+
+        for &lit in &self.fixed_literals {
+            let assignment = self.var_data.assign(lit, 0, Reason::Fixed);
+            self.trail.push(assignment);
+        }
 
         for (cid, clause) in self.clause_data.iter().enumerate() {
             self.var_data.register(clause, cid)
         }
-
-        self.trail = Vec::new();
-        self.decision_level_starts = vec![0];
-        self.decision_level = 0;
-        self.propagation_head = 0;
     }
 
     pub fn solve(&mut self) -> bool {

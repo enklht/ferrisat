@@ -17,7 +17,7 @@ fn construct_solver(path: String) -> Solver {
         path
     );
 
-    formula.into_solver()
+    Solver::new(formula.num_vars, formula.clauses)
 }
 
 #[test]

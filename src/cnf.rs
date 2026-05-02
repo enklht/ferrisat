@@ -6,12 +6,6 @@ pub struct CnfFormula {
     pub clauses: Vec<Vec<Lit>>,
 }
 
-impl CnfFormula {
-    pub fn into_solver(self) -> Solver {
-        Solver::new(self.num_vars, self.clauses)
-    }
-}
-
 pub fn parse_dimacs_cnf(input: &str) -> Result<CnfFormula, String> {
     let mut num_vars = None;
     let mut expected_clauses = None;

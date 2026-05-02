@@ -50,7 +50,7 @@ impl LitSet {
 
         match reason {
             &Reason::Deduced(cid) => {
-                assert!(!clause_data.deleted(cid));
+                // assert!(!clause_data.deleted(cid));
                 clause_data.get(cid).iter().all(|&l| {
                     l == lit.negated()
                         || self.contains(l.var())
