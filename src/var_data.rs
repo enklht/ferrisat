@@ -48,7 +48,7 @@ impl VarData {
         assignment
     }
 
-    pub fn register(&mut self, clause: &Vec<Lit>, cid: usize) {
+    pub fn register(&mut self, clause: &Clause, cid: usize) {
         debug_assert!(clause.len() >= 2);
         for lit in clause {
             self.activities[lit.var()] += 1.;

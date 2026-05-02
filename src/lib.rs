@@ -284,7 +284,7 @@ impl Solver {
         (learned, lbd, asserted_lit, backjump_level)
     }
 
-    fn add_clause(&mut self, clause: Vec<Lit>, lbd: u16) -> Option<usize> {
+    fn add_clause(&mut self, clause: Clause, lbd: u16) -> Option<usize> {
         if clause.len() == 1 {
             self.assign(clause[0], Reason::Fixed);
             return None;
