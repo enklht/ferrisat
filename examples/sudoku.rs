@@ -1,4 +1,4 @@
-use cdcl_rs::*;
+use ferrisat::*;
 
 const SIZE: usize = 9;
 const BOX: usize = 3;

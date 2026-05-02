@@ -1,5 +1,5 @@
-use cdcl_rs::Solver;
-use cdcl_rs::cnf::parse_dimacs_cnf;
+use ferrisat::Solver;
+use ferrisat::cnf::parse_dimacs_cnf;
 use std::fs;
 use std::path::PathBuf;
 

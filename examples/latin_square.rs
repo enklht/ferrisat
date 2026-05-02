@@ -1,4 +1,4 @@
-use cdcl_rs::*;
+use ferrisat::*;
 
 fn var_index(row: usize, col: usize, symbol: usize, size: usize) -> usize {
     (row * size + col) * size + symbol

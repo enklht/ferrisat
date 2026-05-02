@@ -1,4 +1,4 @@
-use cdcl_rs::*;
+use ferrisat::*;
 
 fn var_index(num_holes: usize, pigeon: usize, hole: usize) -> usize {
     pigeon * num_holes + hole
