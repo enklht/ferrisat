@@ -103,4 +103,8 @@ impl VarData {
         self.watched_pos.fill(vec![]);
         self.watched_neg.fill(vec![]);
     }
+
+    pub fn num_vars(&self) -> usize {
+        self.num_vars
+    }
 }

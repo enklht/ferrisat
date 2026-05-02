@@ -45,25 +45,42 @@ impl LitSet {
         clause
     }
 
-    pub fn reducible(&self, lit: Lit, var_data: &VarData, clause_data: &ClauseData) -> bool {
-        let reason = &var_data.assignment_of(lit.var()).reason;
-
-        match reason {
-            &Reason::Deduced(cid) => {
-                assert!(!clause_data.deleted(cid));
-                clause_data.get(cid).iter().all(|&l| {
-                    l == lit.negated()
-                        || self.contains(l.var())
-                        || self.reducible(l, var_data, clause_data)
-                })
+    pub fn reducible(
+        &self,
+        lit: Lit,
+        var_data: &VarData,
+        clause_data: &ClauseData,
+        memo: &mut Vec<Option<bool>>,
+    ) -> bool {
+        match memo[lit.var()] {
+            Some(b) => b,
+            None => {
+                let reason = &var_data.assignment_of(lit.var()).reason;
+                match reason {
+                    &Reason::Deduced(cid) => {
+                        assert!(!clause_data.deleted(cid));
+                        let reducible = clause_data.get(cid).iter().all(|&l| {
+                            l == lit.negated()
+                                || self.contains(l.var())
+                                || self.reducible(l, var_data, clause_data, memo)
+                        });
+                        memo[lit.var()] = Some(reducible);
+                        reducible
+                    }
+                    _ => {
+                        memo[lit.var()] = Some(false);
+                        false
+                    }
+                }
             }
-            _ => false,
         }
     }
 
     pub fn simplify(&mut self, var_data: &VarData, clause_data: &ClauseData) {
         for &lit in &self.candidates {
-            if self.seen[lit.var()] && self.reducible(lit, var_data, clause_data) {
+            let memo = &mut vec![None; var_data.num_vars()];
+
+            if self.seen[lit.var()] && self.reducible(lit, var_data, clause_data, memo) {
                 self.seen[lit.var()] = false;
             }
         }
