@@ -44,27 +44,28 @@ impl LitSet {
         }
         clause
     }
-    //
-    // pub fn simplify(&mut self, var_data: &VarData, clauses: &[Clause]) {
-    //     for &lit in &self.candidates {
-    //         if self.seen[lit.var()] {
-    //             let assignment = var_data.assignment_of(lit.var());
-    //
-    //             if assignment.level == self.decision_level {
-    //                 continue;
-    //             }
-    //
-    //             let Reason::Deduced(cid) = assignment.reason else {
-    //                 continue;
-    //             };
-    //
-    //             if clauses[cid]
-    //                 .iter()
-    //                 .all(|l| self.seen[l.var()] || lit == l.negated())
-    //             {
-    //                 self.seen[lit.var()] = false;
-    //             }
-    //         }
-    //     }
-    // }
+
+    pub fn reducible(&self, lit: Lit, var_data: &VarData, clause_data: &ClauseData) -> bool {
+        let reason = &var_data.assignment_of(lit.var()).reason;
+
+        match reason {
+            &Reason::Deduced(cid) => {
+                assert!(!clause_data.deleted(cid));
+                clause_data.get(cid).iter().all(|&l| {
+                    l == lit.negated()
+                        || self.contains(l.var())
+                        || self.reducible(l, var_data, clause_data)
+                })
+            }
+            _ => false,
+        }
+    }
+
+    pub fn simplify(&mut self, var_data: &VarData, clause_data: &ClauseData) {
+        for &lit in &self.candidates {
+            if self.seen[lit.var()] && self.reducible(lit, var_data, clause_data) {
+                self.seen[lit.var()] = false;
+            }
+        }
+    }
 }

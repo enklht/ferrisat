@@ -1,13 +1,18 @@
+mod clause_data;
 pub mod cnf;
 mod lit_set;
 mod var_data;
 
+use clause_data::ClauseData;
 use lit_set::LitSet;
 use var_data::VarData;
 
 const VAR_DECAY: f32 = 0.99;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
 const RESCALE_THRESHOLD: f32 = 1e30;
+const CLAUSE_REDUCTION_INTERVAL: usize = 50;
+const RECIP_REDUCTION_RATIO: usize = 2;
+const COMPACTION_INTERVAL: usize = 100;
 
 pub type ClauseId = usize;
 
@@ -83,9 +88,7 @@ enum ClauseResult {
 pub struct Solver {
     num_vars: usize,
     var_data: VarData,
-    clauses: Vec<Clause>,
-    clause_deleted: Vec<bool>,
-    clause_lbds: Vec<u16>,
+    clause_data: ClauseData,
     // states
     trail: Vec<Assignment>,
     decision_level_starts: Vec<usize>,
@@ -96,14 +99,10 @@ pub struct Solver {
 impl Solver {
     pub fn new(num_vars: usize, clauses: Vec<Vec<Lit>>) -> Self {
         let mut solver = Solver {
-            //variables
             num_vars,
             var_data: VarData::new(num_vars),
-            // clauses
-            clauses: Vec::new(),
-            clause_deleted: Vec::new(),
-            clause_lbds: Vec::new(),
-            // solver states
+            clause_data: ClauseData::new(),
+            // states
             trail: Vec::new(),
             decision_level_starts: vec![0],
             decision_level: 0,
@@ -118,7 +117,7 @@ impl Solver {
     }
 
     fn propagate_clause(&mut self, cid: ClauseId, falsified: Lit) -> ClauseResult {
-        let clause = &mut self.clauses[cid];
+        let clause = self.clause_data.get_mut(cid);
 
         if clause[0] != falsified {
             clause.swap(0, 1);
@@ -156,7 +155,7 @@ impl Solver {
         while i < self.var_data.watched_clause(falsified).len() {
             let cid = self.var_data.watched_clause(falsified)[i];
 
-            if self.clause_deleted[cid] {
+            if self.clause_data.deleted(cid) {
                 self.var_data.watched_clause(falsified).swap_remove(i);
                 continue;
             }
@@ -211,14 +210,14 @@ impl Solver {
         self.decision_level = target_level;
     }
 
-    fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, u16, Lit, usize) {
+    fn analyze_conflict(&mut self, cid: ClauseId) -> (Clause, u16, Lit, usize) {
         let start = *self.decision_level_starts.last().unwrap();
         let current_level_assignments = &self.trail[start..];
 
         let mut learned = LitSet::new(self.num_vars);
         let mut num_current_level = 0;
 
-        for &lit in &self.clauses[cid] {
+        for &lit in self.clause_data.get(cid) {
             learned.push(lit);
             let assignment = self.var_data.assignment_of(lit.var());
             if assignment.level == self.decision_level {
@@ -242,7 +241,7 @@ impl Solver {
                 continue;
             };
 
-            for &lit in &self.clauses[cid] {
+            for &lit in self.clause_data.get(cid) {
                 if learned.push(lit) {
                     let assignment = self.var_data.assignment_of(lit.var());
                     if assignment.level == self.decision_level {
@@ -261,7 +260,7 @@ impl Solver {
 
         debug_assert!(num_current_level == 1);
 
-        // learned.simplify(&self.var_data, &self.clauses);
+        learned.simplify(&self.var_data, &self.clause_data);
 
         let learned = learned.into_vec();
 
@@ -291,12 +290,9 @@ impl Solver {
             return None;
         }
 
-        let cid = self.clauses.len();
+        let cid = self.clause_data.len();
         self.var_data.register(&clause, cid);
-
-        self.clauses.push(clause);
-        self.clause_deleted.push(false);
-        self.clause_lbds.push(lbd);
+        self.clause_data.push(clause, lbd);
 
         Some(cid)
     }
@@ -306,25 +302,18 @@ impl Solver {
         self.trail.push(assignment);
     }
 
-    fn compact_clauses(&mut self) {
-        let clauses = std::mem::take(&mut self.clauses);
-        let clause_deleted = std::mem::take(&mut self.clause_deleted);
-        let clause_lbds = std::mem::take(&mut self.clause_lbds);
+    fn compact(&mut self) {
+        self.var_data.clear();
+        self.clause_data.compact();
 
-        self.var_data.clear_watched_lits();
-
-        let mut new_cid = 0;
-        for (old_cid, clause) in clauses.into_iter().enumerate() {
-            if !clause_deleted[old_cid] {
-                self.var_data.register(&clause, new_cid);
-
-                self.clauses.push(clause);
-                self.clause_deleted.push(false);
-                self.clause_lbds.push(clause_lbds[old_cid]);
-
-                new_cid += 1;
-            }
+        for (cid, clause) in self.clause_data.iter().enumerate() {
+            self.var_data.register(clause, cid)
         }
+
+        self.trail = Vec::new();
+        self.decision_level_starts = vec![0];
+        self.decision_level = 0;
+        self.propagation_head = 0;
     }
 
     pub fn solve(&mut self) -> bool {
@@ -358,16 +347,12 @@ impl Solver {
 
             self.backjump(0);
 
-            if num_restart % 50 == 0 {
-                for cid in 0..self.clauses.len() {
-                    if self.clause_lbds[cid] > 7 {
-                        self.clause_deleted[cid] = true;
-                    }
-                }
+            if num_restart % CLAUSE_REDUCTION_INTERVAL == 0 {
+                self.clause_data.reduce();
             }
 
-            if num_restart % 1000 == 0 {
-                self.compact_clauses();
+            if num_restart % COMPACTION_INTERVAL == 0 {
+                self.compact();
             }
         }
 

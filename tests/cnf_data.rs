@@ -57,7 +57,6 @@ fn uf100_430() {
 }
 
 #[test]
-#[ignore]
 fn uf100_430_all() {
     for i in 1..=1000 {
         let path = format!("data/uf100-430/uf100-0{i}.cnf");
@@ -76,7 +75,6 @@ fn uuf100_430() {
 }
 
 #[test]
-#[ignore]
 fn uuf100_430_all() {
     for i in 1..=1000 {
         let path = format!("data/uuf100-430/uuf100-0{i}.cnf");
@@ -86,7 +84,6 @@ fn uuf100_430_all() {
 }
 
 #[test]
-#[ignore]
 fn uf250_1065() {
     for i in 1..=1 {
         let path = format!("data/uf250-1065/uf250-0{i}.cnf");
@@ -96,7 +93,6 @@ fn uf250_1065() {
 }
 
 #[test]
-#[ignore]
 fn uuf250_1065() {
     for i in 1..=1 {
         let path = format!("data/uuf250-1065/uuf250-0{i}.cnf");
