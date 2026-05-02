@@ -151,9 +151,9 @@ impl Solver {
         }
 
         match assigned_val_of_other {
+            Some(true) => unreachable!(),
             Some(false) => ClauseResult::Conflict,
             None => ClauseResult::Unit(other),
-            Some(true) => unreachable!(),
         }
     }
 
@@ -261,6 +261,7 @@ impl Solver {
 
         let cid = self.clauses.len();
         self.var_data.register(&clause, cid);
+
         self.clauses.push(clause);
         self.clause_deleted.push(false);
         self.clause_lbds.push(lbd);
@@ -271,6 +272,27 @@ impl Solver {
     fn assign(&mut self, lit: Lit, reason: Reason) {
         let assignment = self.var_data.assign(lit, self.decision_level, reason);
         self.trail.push(assignment);
+    }
+
+    fn compact_clauses(&mut self) {
+        let clauses = std::mem::take(&mut self.clauses);
+        let clause_deleted = std::mem::take(&mut self.clause_deleted);
+        let clause_lbds = std::mem::take(&mut self.clause_lbds);
+
+        self.var_data.reset_watched_lits();
+
+        let mut new_cid = 0;
+        for (old_cid, clause) in clauses.into_iter().enumerate() {
+            if !clause_deleted[old_cid] {
+                self.var_data.register(&clause, new_cid);
+
+                self.clauses.push(clause);
+                self.clause_deleted.push(false);
+                self.clause_lbds.push(clause_lbds[old_cid]);
+
+                new_cid += 1;
+            }
+        }
     }
 
     pub fn solve(&mut self) -> bool {
@@ -302,6 +324,8 @@ impl Solver {
                 }
             }
 
+            self.backjump(0);
+
             if num_restart % 50 == 0 {
                 for cid in 0..self.clauses.len() {
                     if self.clause_lbds[cid] > 7 {
@@ -310,7 +334,9 @@ impl Solver {
                 }
             }
 
-            self.backjump(0);
+            if num_restart % 1000 == 0 {
+                self.compact_clauses();
+            }
         }
 
         unreachable!()

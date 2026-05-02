@@ -99,4 +99,9 @@ impl VarData {
     pub fn assignment_of(&self, var: usize) -> &Assignment {
         self.assignments[var].as_ref().unwrap()
     }
+
+    pub fn reset_watched_lits(&mut self) {
+        self.watched_pos.fill(vec![]);
+        self.watched_neg.fill(vec![]);
+    }
 }
