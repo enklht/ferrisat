@@ -90,8 +90,8 @@ impl VarData {
 
     pub fn assigned_val_of(&self, lit: Lit) -> Option<bool> {
         match &self.assignments[lit.var()] {
-            Some(assignment) if assignment.val == lit.val() => Some(true),
-            Some(_) => Some(false),
+            Some(assignment) if lit.val() => Some(assignment.val),
+            Some(assignment) => Some(!assignment.val),
             None => None,
         }
     }
@@ -100,7 +100,7 @@ impl VarData {
         self.assignments[var].as_ref().unwrap()
     }
 
-    pub fn reset_watched_lits(&mut self) {
+    pub fn clear_watched_lits(&mut self) {
         self.watched_pos.fill(vec![]);
         self.watched_neg.fill(vec![]);
     }

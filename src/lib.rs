@@ -5,13 +5,12 @@ mod var_data;
 use lit_set::LitSet;
 use var_data::VarData;
 
-const VAR_DECAY: f32 = 0.95;
+const VAR_DECAY: f32 = 0.99;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
 const RESCALE_THRESHOLD: f32 = 1e30;
 
 pub type ClauseId = usize;
 
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Lit(usize);
 
@@ -23,29 +22,24 @@ impl Lit {
         if val { Lit::pos(var) } else { Lit::neg(var) }
     }
 
-    #[inline]
     pub fn pos(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
         Lit(var | SIGN_BIT)
     }
 
-    #[inline]
     pub fn neg(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
         Lit(var)
     }
 
-    #[inline]
     pub fn negated(self) -> Self {
         Lit(self.0 ^ SIGN_BIT)
     }
 
-    #[inline]
     pub fn var(self) -> usize {
         self.0 & VAR_MASK
     }
 
-    #[inline]
     pub fn val(self) -> bool {
         (self.0 & SIGN_BIT) != 0
     }
@@ -218,13 +212,23 @@ impl Solver {
     }
 
     fn analyze_conflict(&mut self, cid: ClauseId) -> (Vec<Lit>, u16, Lit, usize) {
-        let mut learned = LitSet::new(&self.clauses[cid], self);
-
         let start = *self.decision_level_starts.last().unwrap();
         let current_level_assignments = &self.trail[start..];
 
+        let mut learned = LitSet::new(self.num_vars);
+        let mut num_current_level = 0;
+
+        for &lit in &self.clauses[cid] {
+            learned.push(lit);
+            let assignment = self.var_data.assignment_of(lit.var());
+            if assignment.level == self.decision_level {
+                num_current_level += 1;
+            }
+            self.var_data.bump_activity(lit.var());
+        }
+
         for assignment in current_level_assignments.iter().rev() {
-            if learned.num_current_level == 1 {
+            if num_current_level == 1 {
                 break;
             }
 
@@ -239,18 +243,46 @@ impl Solver {
             };
 
             for &lit in &self.clauses[cid] {
+                if learned.push(lit) {
+                    let assignment = self.var_data.assignment_of(lit.var());
+                    if assignment.level == self.decision_level {
+                        num_current_level += 1;
+                    }
+                }
                 self.var_data.bump_activity(lit.var());
             }
 
-            learned.extend(&self.clauses[cid], &self.var_data);
-            learned.remove(Lit::pos(pivot), &self.var_data);
-            learned.remove(Lit::neg(pivot), &self.var_data);
+            if learned.remove(pivot)
+                && self.var_data.assignment_of(pivot).level == self.decision_level
+            {
+                num_current_level -= 1;
+            }
         }
 
-        debug_assert!(learned.num_current_level == 1);
+        debug_assert!(num_current_level == 1);
 
-        learned.simplify(&self.var_data, &self.clauses);
-        learned.into_analysis_result(&self.var_data)
+        // learned.simplify(&self.var_data, &self.clauses);
+
+        let learned = learned.into_vec();
+
+        let mut asserted_lit = Lit::pos(0); // placeholder to be overwritten
+        let mut backjump_level = 0;
+        let mut seen_levels = vec![false; self.decision_level + 1];
+
+        for &lit in &learned {
+            let level = self.var_data.assignment_of(lit.var()).level;
+
+            if level == self.decision_level {
+                asserted_lit = lit;
+            } else {
+                backjump_level = backjump_level.max(level);
+            }
+
+            seen_levels[level] = true;
+        }
+
+        let lbd = seen_levels.iter().filter(|&seen| *seen).count() as u16;
+        (learned, lbd, asserted_lit, backjump_level)
     }
 
     fn add_clause(&mut self, clause: Vec<Lit>, lbd: u16) -> Option<usize> {
@@ -279,7 +311,7 @@ impl Solver {
         let clause_deleted = std::mem::take(&mut self.clause_deleted);
         let clause_lbds = std::mem::take(&mut self.clause_lbds);
 
-        self.var_data.reset_watched_lits();
+        self.var_data.clear_watched_lits();
 
         let mut new_cid = 0;
         for (old_cid, clause) in clauses.into_iter().enumerate() {
