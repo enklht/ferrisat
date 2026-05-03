@@ -35,6 +35,34 @@ fn subsumes(c: &Clause, d: &Clause) -> SubsumptionResult {
     }
 }
 
+fn resolve(c: &Clause, d: &Clause, v: usize) -> Option<Clause> {
+    let mut resolvent = Vec::new();
+
+    for &lit in c {
+        if lit.var() != v {
+            resolvent.push(lit);
+        }
+    }
+    for &lit in d {
+        if lit.var() != v {
+            resolvent.push(lit);
+        }
+    }
+
+    resolvent.sort();
+    resolvent.dedup();
+
+    if resolvent
+        .windows(2)
+        .find(|&window| window[0] == window[1].negated())
+        .is_none()
+    {
+        Some(resolvent)
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CNF {
     pub num_vars: usize,
@@ -56,6 +84,8 @@ impl CNF {
             }
         }
 
+        self.backward_subsumption_fixpoint();
+        self.eliminate_all();
         self.backward_subsumption_fixpoint();
     }
 
@@ -113,6 +143,47 @@ impl CNF {
         }
 
         changed
+    }
+
+    fn eliminate_all(&mut self) {
+        for v in 0..self.num_vars {
+            let clauses = std::mem::take(&mut self.clauses);
+
+            let mut contains_pos = Vec::new();
+            let mut contains_neg = Vec::new();
+            let mut others = Vec::new();
+
+            for (cid, clause) in clauses.iter().enumerate() {
+                if clause.contains(&Lit::pos(v)) {
+                    contains_pos.push(cid)
+                } else if clause.contains(&Lit::neg(v)) {
+                    contains_neg.push(cid)
+                } else {
+                    others.push(cid)
+                }
+            }
+
+            let mut resolvents = Vec::new();
+
+            for &cid in &contains_pos {
+                for &did in &contains_neg {
+                    if let Some(clause) = resolve(&clauses[cid], &clauses[did], v) {
+                        resolvents.push(clause);
+                    }
+                }
+            }
+
+            if resolvents.len() < contains_pos.len() + contains_neg.len() {
+                for cid in others {
+                    self.clauses.push(clauses[cid].clone());
+                }
+                for clause in resolvents {
+                    self.clauses.push(clause);
+                }
+            } else {
+                self.clauses = clauses;
+            }
+        }
     }
 
     pub fn from_dimacs(input: &str) -> Result<CNF, String> {
