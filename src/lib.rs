@@ -11,9 +11,9 @@ use var_data::VarData;
 const VAR_DECAY: f32 = 0.99;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
 const RESCALE_THRESHOLD: f32 = 1e35;
-const CLAUSE_REDUCTION_INTERVAL: usize = 10;
-const RECIP_REDUCTION_RATIO: usize = 2;
-const COMPACTION_INTERVAL: usize = 100;
+const REDUCTION_RATIO: f32 = 0.6;
+const CLAUSE_REDUCTION_INTERVAL: usize = 100;
+const COMPACTION_INTERVAL: usize = 1000;
 
 pub type ClauseId = usize;
 
@@ -29,12 +29,12 @@ impl Lit {
 
     pub fn pos(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
-        Lit(var << 1 | 1)
+        Lit(var << 1)
     }
 
     pub fn neg(var: usize) -> Self {
         debug_assert!(var < VAR_MASK);
-        Lit(var << 1)
+        Lit(var << 1 | 1)
     }
 
     pub fn negated(self) -> Self {
@@ -46,7 +46,7 @@ impl Lit {
     }
 
     pub fn val(self) -> bool {
-        (self.0 & 1) != 0
+        (self.0 & 1) == 0
     }
 }
 
@@ -157,7 +157,7 @@ impl Solver {
         while i < self.var_data.watched_clause(falsified).len() {
             let cid = self.var_data.watched_clause(falsified)[i];
 
-            if self.clause_data.deleted(cid) {
+            if self.clause_data.is_deleted(cid) {
                 self.var_data.watched_clause(falsified).swap_remove(i);
                 continue;
             }
@@ -365,6 +365,17 @@ impl Solver {
             for fixed_lit in self.fixed_literals.drain(..) {
                 let assignment = self.var_data.assign(fixed_lit, 0, Reason::Fixed);
                 self.trail.push(assignment);
+            }
+
+            for cid in 0..self.clause_data.len() {
+                if !self.clause_data.is_deleted(cid) {
+                    for &lit in self.clause_data.get(cid) {
+                        if self.var_data.assigned_val_of(lit) == Some(true) {
+                            self.clause_data.delete(cid);
+                            break;
+                        }
+                    }
+                }
             }
 
             if num_restart % CLAUSE_REDUCTION_INTERVAL == 0 {

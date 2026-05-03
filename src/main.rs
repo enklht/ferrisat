@@ -13,10 +13,15 @@ fn main() {
         process::exit(1);
     });
 
-    let formula = CNF::from_dimacs(&contents).unwrap_or_else(|err| {
+    let mut formula = CNF::from_dimacs(&contents).unwrap_or_else(|err| {
         eprintln!("failed to parse {}: {}", path, err);
         process::exit(1);
     });
+
+    println!("num_vars:    {}", formula.num_vars);
+    println!("num_clauses: {}", formula.clauses.len());
+
+    formula.simplify();
 
     println!("num_vars:    {}", formula.num_vars);
     println!("num_clauses: {}", formula.clauses.len());

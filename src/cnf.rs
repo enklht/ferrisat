@@ -1,4 +1,39 @@
-use crate::Lit;
+use crate::{Clause, Lit};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SubsumptionResult {
+    Keep,
+    RemoveClause,
+    RemoveLitAt(usize),
+}
+
+fn subsumes(c: &Clause, d: &Clause) -> SubsumptionResult {
+    if d.len() < c.len() {
+        return SubsumptionResult::Keep;
+    }
+
+    let mut candidate = None;
+    'outer: for &ci in c {
+        for (i, &di) in d.iter().enumerate() {
+            if ci == di {
+                continue 'outer;
+            } else if ci == di.negated() {
+                if candidate.is_some() {
+                    return SubsumptionResult::Keep;
+                }
+                candidate = Some(i);
+                continue 'outer;
+            }
+        }
+
+        return SubsumptionResult::Keep;
+    }
+
+    match candidate {
+        Some(i) => SubsumptionResult::RemoveLitAt(i),
+        None => SubsumptionResult::RemoveClause,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CNF {
@@ -10,6 +45,8 @@ impl CNF {
     pub fn simplify(&mut self) {
         for mut clause in std::mem::take(&mut self.clauses) {
             clause.sort();
+            clause.dedup();
+
             if clause
                 .windows(2)
                 .find(|&window| window[0] == window[1].negated())
@@ -18,6 +55,64 @@ impl CNF {
                 self.clauses.push(clause);
             }
         }
+
+        self.backward_subsumption_fixpoint();
+    }
+
+    fn backward_subsumption_fixpoint(&mut self) {
+        while self.backward_subsumption_step() {}
+    }
+
+    fn backward_subsumption_step(&mut self) -> bool {
+        let mut changed = false;
+        let clauses = std::mem::take(&mut self.clauses);
+        let mut pending_operations = vec![SubsumptionResult::Keep; clauses.len()];
+
+        let mut occurs = vec![Vec::new(); self.num_vars];
+        for (cid, clause) in clauses.iter().enumerate() {
+            for &lit in clause {
+                occurs[lit.var()].push(cid);
+            }
+        }
+
+        for cid in 0..clauses.len() {
+            let pivot = clauses[cid]
+                .iter()
+                .min_by_key(|lit| occurs[lit.var()].len())
+                .unwrap();
+            for &did in &occurs[pivot.var()] {
+                if cid == did
+                    || pending_operations[cid] != SubsumptionResult::Keep
+                    || pending_operations[did] == SubsumptionResult::RemoveClause
+                {
+                    continue;
+                }
+                match subsumes(&clauses[cid], &clauses[did]) {
+                    SubsumptionResult::Keep => {}
+                    other => {
+                        pending_operations[did] = other;
+                    }
+                }
+            }
+        }
+
+        for (cid, mut clause) in clauses.into_iter().enumerate() {
+            match pending_operations[cid] {
+                SubsumptionResult::Keep => {
+                    self.clauses.push(clause);
+                }
+                SubsumptionResult::RemoveClause => {
+                    changed = true;
+                }
+                SubsumptionResult::RemoveLitAt(i) => {
+                    clause.swap_remove(i);
+                    self.clauses.push(clause);
+                    changed = true;
+                }
+            }
+        }
+
+        changed
     }
 
     pub fn from_dimacs(input: &str) -> Result<CNF, String> {

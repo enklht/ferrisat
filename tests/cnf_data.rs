@@ -7,7 +7,7 @@ fn construct_solver(path: String) -> Solver {
     let content =
         fs::read_to_string(&full_path).unwrap_or_else(|e| panic!("failed to read {}: {}", path, e));
 
-    let formula =
+    let mut formula =
         CNF::from_dimacs(&content).unwrap_or_else(|e| panic!("failed to parse {}: {}", path, e));
     assert!(formula.num_vars > 0, "unexpected num_vars in {}", path);
     assert!(
@@ -15,6 +15,8 @@ fn construct_solver(path: String) -> Solver {
         "unexpected empty clauses in {}",
         path
     );
+
+    formula.simplify();
 
     Solver::new(formula.num_vars, formula.clauses)
 }
