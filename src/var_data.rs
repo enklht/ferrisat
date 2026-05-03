@@ -98,8 +98,17 @@ impl VarData {
         self.assignments[var].as_ref().unwrap()
     }
 
-    pub fn clear(&mut self) {
-        self.assignments.fill(None);
+    pub fn remap_assignments(&mut self, map: Vec<usize>) {
+        for assignment in &mut self.assignments {
+            if let Some(assignment) = assignment
+                && let Reason::Deduced(old_cid) = &mut assignment.reason
+            {
+                *old_cid = map[*old_cid];
+            }
+        }
+    }
+
+    pub fn clear_watched_lits(&mut self) {
         self.watched_pos.fill(vec![]);
         self.watched_neg.fill(vec![]);
     }

@@ -67,17 +67,24 @@ impl ClauseData {
         }
     }
 
-    pub fn compact(&mut self) {
+    pub fn compact(&mut self) -> Vec<usize> {
         let clauses = std::mem::take(&mut self.clauses);
         let locked = std::mem::take(&mut self.locked);
         let deleted = std::mem::take(&mut self.deleted);
         let lbds = std::mem::take(&mut self.lbds);
 
+        let mut map = vec![0; clauses.len()];
+
+        let mut new_cid = 0;
         for (old_cid, clause) in clauses.into_iter().enumerate() {
             if !deleted[old_cid] {
                 self.push(clause, locked[old_cid], lbds[old_cid]);
+                map[old_cid] = new_cid;
+                new_cid += 1;
             }
         }
+
+        map
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, Clause> {

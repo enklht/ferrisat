@@ -10,8 +10,8 @@ use var_data::VarData;
 
 const VAR_DECAY: f32 = 0.99;
 const RESTART_INTERVAL_MULTIPLIER: usize = 100;
-const RESCALE_THRESHOLD: f32 = 1e30;
-const CLAUSE_REDUCTION_INTERVAL: usize = 50;
+const RESCALE_THRESHOLD: f32 = 1e35;
+const CLAUSE_REDUCTION_INTERVAL: usize = 10;
 const RECIP_REDUCTION_RATIO: usize = 2;
 const COMPACTION_INTERVAL: usize = 100;
 
@@ -292,7 +292,9 @@ impl Solver {
     fn add_clause(&mut self, clause: Clause, lbd: u16) -> Option<usize> {
         if clause.len() == 1 {
             self.assign(clause[0], Reason::Fixed);
-            self.fixed_literals.push(clause[0]);
+            if self.decision_level > 0 {
+                self.fixed_literals.push(clause[0]);
+            }
             return None;
         }
 
@@ -313,19 +315,17 @@ impl Solver {
     }
 
     fn compact(&mut self) {
-        self.clause_data.compact();
+        let map = self.clause_data.compact();
 
-        self.trail.clear();
-        self.decision_level_starts.drain(1..);
-        self.propagation_head = 0;
-
-        self.var_data.clear();
-
-        for &lit in &self.fixed_literals {
-            let assignment = self.var_data.assign(lit, 0, Reason::Fixed);
-            self.trail.push(assignment);
+        for assignments in &mut self.trail {
+            if let Reason::Deduced(old_cid) = &mut assignments.reason {
+                *old_cid = map[*old_cid];
+            }
         }
 
+        self.var_data.remap_assignments(map);
+
+        self.var_data.clear_watched_lits();
         for (cid, clause) in self.clause_data.iter().enumerate() {
             self.var_data.register(clause, cid)
         }
@@ -361,6 +361,11 @@ impl Solver {
             }
 
             self.backjump(0);
+
+            for fixed_lit in self.fixed_literals.drain(..) {
+                let assignment = self.var_data.assign(fixed_lit, 0, Reason::Fixed);
+                self.trail.push(assignment);
+            }
 
             if num_restart % CLAUSE_REDUCTION_INTERVAL == 0 {
                 self.clause_data.reduce();
