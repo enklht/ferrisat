@@ -36,15 +36,16 @@ impl VarData {
         debug_assert!(self.assignments[lit.var()].is_none());
 
         let var = lit.var();
+        let val = lit.val();
 
         let assignment = Assignment {
             var,
-            val: lit.val(),
+            val,
             level,
             reason,
         };
         self.assignments[var] = Some(assignment.clone());
-        self.saved_polarities[var] = lit.val();
+        self.saved_polarities[var] = val;
         assignment
     }
 

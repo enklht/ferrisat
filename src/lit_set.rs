@@ -49,14 +49,11 @@ impl LitSet {
         let reason = &var_data.assignment_of(lit.var()).reason;
 
         match reason {
-            &Reason::Deduced(cid) => {
-                // assert!(!clause_data.deleted(cid));
-                clause_data.get(cid).iter().all(|&l| {
-                    l == lit.negated()
-                        || self.contains(l.var())
-                        || self.reducible(l, var_data, clause_data)
-                })
-            }
+            &Reason::Deduced(cid) => clause_data.get(cid).iter().all(|&l| {
+                l == lit.negated()
+                    || self.contains(l.var())
+                    || self.reducible(l, var_data, clause_data)
+            }),
             _ => false,
         }
     }

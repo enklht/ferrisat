@@ -56,7 +56,9 @@ impl ClauseData {
     }
 
     pub fn delete(&mut self, cid: usize) {
-        self.deleted[cid] = true;
+        if !self.locked[cid] {
+            self.deleted[cid] = true;
+        }
     }
 
     pub fn reduce(&mut self) {
@@ -87,7 +89,7 @@ impl ClauseData {
 
         let mut new_cid = 0;
         for (old_cid, clause) in clauses.into_iter().enumerate() {
-            if locked[old_cid] || !deleted[old_cid] {
+            if !deleted[old_cid] {
                 self.push(clause, locked[old_cid], lbds[old_cid]);
                 map[old_cid] = new_cid;
                 new_cid += 1;
