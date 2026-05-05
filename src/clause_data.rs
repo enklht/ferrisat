@@ -63,18 +63,17 @@ impl ClauseData {
 
     pub fn reduce(&mut self) {
         let mut cids = (self.num_original..self.clauses.len()).collect::<Vec<_>>();
-        cids.sort_unstable_by_key(|&cid| self.lbds[cid]);
+        if cids.is_empty() {
+            return;
+        }
+        let max_deletion = (cids.len() as f32 * REDUCTION_RATIO) as usize;
 
-        let max_deletion = (self.clauses.len() as f32 * REDUCTION_RATIO) as usize;
-        let mut num_deletion = 0;
-        for &cid in cids.iter().rev() {
-            if num_deletion > max_deletion || self.lbds[cid] <= 3 {
-                break;
-            }
+        let (_, _, candidates) =
+            cids.select_nth_unstable_by_key(max_deletion, |&cid| self.lbds[cid]);
 
-            if !self.deleted[cid] {
+        for &cid in candidates.iter() {
+            if self.lbds[cid] > 3 && !self.deleted[cid] {
                 self.deleted[cid] = true;
-                num_deletion += 1;
             }
         }
     }

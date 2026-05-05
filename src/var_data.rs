@@ -7,8 +7,8 @@ pub struct VarData {
     assignments: Vec<Option<Assignment>>,
     activities: Vec<f32>,
     saved_polarities: Vec<bool>,
-    watched_pos: Vec<Vec<ClauseId>>,
-    watched_neg: Vec<Vec<ClauseId>>,
+    watchers_pos: Vec<Vec<ClauseId>>,
+    watchers_neg: Vec<Vec<ClauseId>>,
 }
 
 impl VarData {
@@ -19,16 +19,16 @@ impl VarData {
             assignments: vec![None; num_vars],
             activities: vec![0.; num_vars],
             saved_polarities: vec![true; num_vars],
-            watched_pos: vec![Vec::new(); num_vars],
-            watched_neg: vec![Vec::new(); num_vars],
+            watchers_pos: vec![Vec::new(); num_vars],
+            watchers_neg: vec![Vec::new(); num_vars],
         }
     }
 
-    pub fn watched_clause(&mut self, lit: Lit) -> &mut Vec<ClauseId> {
+    pub fn watching_clauses(&mut self, lit: Lit) -> &mut Vec<ClauseId> {
         if lit.val() {
-            &mut self.watched_pos[lit.var()]
+            &mut self.watchers_pos[lit.var()]
         } else {
-            &mut self.watched_neg[lit.var()]
+            &mut self.watchers_neg[lit.var()]
         }
     }
 
@@ -54,8 +54,8 @@ impl VarData {
         for lit in clause {
             self.activities[lit.var()] += 1.;
         }
-        self.watched_clause(clause[0]).push(cid);
-        self.watched_clause(clause[1]).push(cid);
+        self.watching_clauses(clause[0]).push(cid);
+        self.watching_clauses(clause[1]).push(cid);
     }
 
     pub fn unassign(&mut self, var: usize) {
@@ -110,7 +110,7 @@ impl VarData {
     }
 
     pub fn clear_watched_lits(&mut self) {
-        self.watched_pos.fill(vec![]);
-        self.watched_neg.fill(vec![]);
+        self.watchers_pos.fill(vec![]);
+        self.watchers_neg.fill(vec![]);
     }
 }

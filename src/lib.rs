@@ -153,12 +153,14 @@ impl Solver {
     }
 
     fn propagate_literal(&mut self, falsified: Lit) -> Option<ClauseId> {
+        let mut watching_clauses = std::mem::take(self.var_data.watching_clauses(falsified));
+
         let mut i = 0;
-        while i < self.var_data.watched_clause(falsified).len() {
-            let cid = self.var_data.watched_clause(falsified)[i];
+        while i < watching_clauses.len() {
+            let cid = watching_clauses[i];
 
             if self.clause_data.is_deleted(cid) {
-                self.var_data.watched_clause(falsified).swap_remove(i);
+                watching_clauses.swap_remove(i);
                 continue;
             }
 
@@ -167,10 +169,11 @@ impl Solver {
                     i += 1;
                 }
                 ClauseResult::WatchMoved(new_lit) => {
-                    self.var_data.watched_clause(falsified).swap_remove(i);
-                    self.var_data.watched_clause(new_lit).push(cid);
+                    watching_clauses.swap_remove(i);
+                    self.var_data.watching_clauses(new_lit).push(cid);
                 }
                 ClauseResult::Conflict => {
+                    *self.var_data.watching_clauses(falsified) = watching_clauses;
                     return Some(cid);
                 }
                 ClauseResult::Unit(unit_lit) => {
@@ -180,6 +183,7 @@ impl Solver {
             }
         }
 
+        *self.var_data.watching_clauses(falsified) = watching_clauses;
         None
     }
 
@@ -331,6 +335,19 @@ impl Solver {
         }
     }
 
+    fn remove_satisfied(&mut self) {
+        for cid in 0..self.clause_data.len() {
+            if !self.clause_data.is_deleted(cid) {
+                for &lit in self.clause_data.get(cid) {
+                    if self.var_data.assigned_val_of(lit) == Some(true) {
+                        self.clause_data.delete(cid);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn solve(&mut self) -> bool {
         for num_restart in 0.. {
             for _t in 0..restart_interval(num_restart) {
@@ -367,18 +384,8 @@ impl Solver {
                 self.trail.push(assignment);
             }
 
-            for cid in 0..self.clause_data.len() {
-                if !self.clause_data.is_deleted(cid) {
-                    for &lit in self.clause_data.get(cid) {
-                        if self.var_data.assigned_val_of(lit) == Some(true) {
-                            self.clause_data.delete(cid);
-                            break;
-                        }
-                    }
-                }
-            }
-
             if num_restart % CLAUSE_REDUCTION_INTERVAL == 0 {
+                self.remove_satisfied();
                 self.clause_data.reduce();
             }
 

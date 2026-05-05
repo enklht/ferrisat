@@ -38,7 +38,7 @@ fn subsumes(c: &Clause, d: &Clause) -> SubsumptionResult {
 #[derive(Debug, Clone)]
 pub struct CNF {
     pub num_vars: usize,
-    pub clauses: Vec<Vec<Lit>>,
+    pub clauses: Vec<Clause>,
 }
 
 impl CNF {
