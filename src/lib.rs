@@ -95,6 +95,7 @@ pub struct Solver {
     decision_level_starts: Vec<usize>,
     decision_level: usize,
     propagation_head: usize,
+    unsatisfiable: bool,
 }
 
 impl Solver {
@@ -109,9 +110,24 @@ impl Solver {
             decision_level_starts: vec![0],
             decision_level: 0,
             propagation_head: 0,
+            unsatisfiable: false,
         };
 
         for clause in clauses {
+            if clause.is_empty() {
+                solver.unsatisfiable = true;
+                break;
+            }
+            if clause.len() == 1 {
+                match solver.var_data.assigned_val_of(clause[0]) {
+                    Some(false) => {
+                        solver.unsatisfiable = true;
+                        break;
+                    }
+                    Some(true) => continue,
+                    None => {}
+                }
+            }
             solver.add_clause(clause, 0);
         }
 
@@ -294,6 +310,7 @@ impl Solver {
     }
 
     fn add_clause(&mut self, clause: Clause, lbd: u16) -> Option<usize> {
+        debug_assert!(!clause.is_empty());
         if clause.len() == 1 {
             self.assign(clause[0], Reason::Fixed);
             if self.decision_level > 0 {
@@ -349,10 +366,14 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> bool {
+        if self.unsatisfiable {
+            return false;
+        }
         for num_restart in 0.. {
             for _t in 0..restart_interval(num_restart) {
                 if let Some(conflict_cid) = self.propagate() {
                     if self.decision_level == 0 {
+                        self.unsatisfiable = true;
                         return false;
                     }
 
@@ -422,4 +443,46 @@ fn luby(mut i: usize) -> usize {
     }
 
     2_usize.pow(seq)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_preserves_live_reasons_and_watches() {
+        let mut solver = Solver::new(
+            4,
+            vec![
+                vec![Lit::pos(3), Lit::neg(3)],
+                vec![Lit::neg(0), Lit::pos(1)],
+                vec![Lit::neg(1), Lit::pos(2)],
+            ],
+        );
+        solver.decision_level = 1;
+        solver.decision_level_starts.push(0);
+        solver.assign(Lit::pos(0), Reason::Guessed);
+        assert!(solver.propagate().is_none());
+        solver.clause_data.delete(0);
+        solver.compact();
+
+        for (var, expected_cid) in [(1, 0), (2, 1)] {
+            let Reason::Deduced(cid) = &solver.var_data.assignment_of(var).reason else {
+                panic!("expected a deduced assignment");
+            };
+            assert_eq!(*cid, expected_cid);
+            let Reason::Deduced(cid) = &solver.trail[var].reason else {
+                panic!("expected a deduced assignment on the trail");
+            };
+            assert_eq!(*cid, expected_cid);
+        }
+        assert_eq!(solver.var_data.watching_clauses(Lit::neg(0)), &[0]);
+        assert_eq!(solver.var_data.watching_clauses(Lit::neg(1)), &[1]);
+
+        solver.backjump(0);
+        for cid in 0..2 {
+            solver.clause_data.delete(cid);
+            assert!(solver.clause_data.is_deleted(cid));
+        }
+    }
 }

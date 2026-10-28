@@ -73,12 +73,13 @@ impl ClauseData {
 
         for &cid in candidates.iter() {
             if self.lbds[cid] > 3 && !self.deleted[cid] {
-                self.deleted[cid] = true;
+                self.delete(cid);
             }
         }
     }
 
     pub fn compact(&mut self) -> Vec<usize> {
+        self.num_original = 0;
         let clauses = std::mem::take(&mut self.clauses);
         let locked = std::mem::take(&mut self.locked);
         let deleted = std::mem::take(&mut self.deleted);
@@ -100,5 +101,48 @@ impl ClauseData {
 
     pub fn iter(&self) -> std::slice::Iter<'_, Clause> {
         self.clauses.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reduction_preserves_locked_reasons() {
+        let mut data = ClauseData::new();
+        data.push(vec![Lit::pos(0), Lit::pos(1)], false, 4);
+        data.push(vec![Lit::pos(0), Lit::pos(1)], false, 5);
+        data.push(vec![Lit::pos(0), Lit::pos(1)], true, 100);
+        data.reduce();
+        assert!(!data.is_deleted(2));
+    }
+
+    #[test]
+    fn compacted_learned_clauses_remain_eligible_for_reduction() {
+        let mut data = ClauseData::new();
+        for lbd in [0, 0, 4, 5, 100] {
+            data.push(vec![Lit::pos(0), Lit::pos(1)], false, lbd);
+        }
+        for _ in 0..2 {
+            data.compact();
+        }
+        data.reduce();
+        assert!(!data.is_deleted(0));
+        assert!(!data.is_deleted(1));
+        assert!(data.is_deleted(4));
+    }
+
+    #[test]
+    fn compaction_updates_the_boundary_after_original_clause_deletion() {
+        let mut data = ClauseData::new();
+        for lbd in [0, 0, 4, 5, 100] {
+            data.push(vec![Lit::pos(0), Lit::pos(1)], false, lbd);
+        }
+        data.delete(0);
+        let map = data.compact();
+        data.reduce();
+        assert!(!data.is_deleted(map[1]));
+        assert!(data.is_deleted(map[4]));
     }
 }

@@ -64,6 +64,9 @@ impl CNF {
     }
 
     fn backward_subsumption_step(&mut self) -> bool {
+        if self.clauses.iter().any(Vec::is_empty) {
+            return false;
+        }
         let mut changed = false;
         let clauses = std::mem::take(&mut self.clauses);
         let mut pending_operations = vec![SubsumptionResult::Keep; clauses.len()];
@@ -131,6 +134,9 @@ impl CNF {
             }
 
             if line.starts_with('p') {
+                if num_vars.is_some() {
+                    return Err(format!("duplicate DIMACS header at line {}", line_no + 1));
+                }
                 let parts: Vec<_> = line.split_whitespace().collect();
                 if parts.len() != 4 || parts[0] != "p" || parts[1] != "cnf" {
                     return Err(format!("invalid header at line {}", line_no + 1));
@@ -148,15 +154,14 @@ impl CNF {
                 continue;
             }
 
+            let limit = num_vars
+                .ok_or_else(|| format!("missing DIMACS header before line {}", line_no + 1))?;
             for token in line.split_whitespace() {
                 let lit = token
                     .parse::<isize>()
                     .map_err(|_| format!("invalid literal '{}' at line {}", token, line_no + 1))?;
 
                 if lit == 0 {
-                    if current_clause.is_empty() {
-                        return Err(format!("empty clause at line {}", line_no + 1));
-                    }
                     clauses.push(std::mem::take(&mut current_clause));
                     continue;
                 }
@@ -165,9 +170,7 @@ impl CNF {
                 if var == 0 {
                     return Err(format!("invalid variable id at line {}", line_no + 1));
                 }
-                if let Some(limit) = num_vars
-                    && var > limit
-                {
+                if var > limit {
                     return Err(format!("variable {} exceeds declared bound {}", var, limit));
                 }
 
@@ -217,5 +220,28 @@ mod tests {
     fn rejects_unterminated_clause() {
         let input = "p cnf 2 1\n1 -2\n";
         assert!(CNF::from_dimacs(input).is_err());
+    }
+
+    #[test]
+    fn parses_empty_clauses() {
+        let parsed = CNF::from_dimacs("p cnf 0 1\n0\n").unwrap();
+        assert_eq!(parsed.num_vars, 0);
+        assert_eq!(parsed.clauses, vec![vec![]]);
+    }
+
+    #[test]
+    fn rejects_literals_before_the_header() {
+        assert!(CNF::from_dimacs("2 0\np cnf 1 1\n").is_err());
+    }
+
+    #[test]
+    fn rejects_repeated_headers() {
+        assert!(CNF::from_dimacs("p cnf 2 1\n2 0\np cnf 1 1\n").is_err());
+    }
+
+    #[test]
+    fn rejects_literals_outside_the_declared_bounds() {
+        assert!(CNF::from_dimacs("p cnf 1 1\n2 0\n").is_err());
+        assert!(CNF::from_dimacs("p cnf 1 1\n-2 0\n").is_err());
     }
 }
